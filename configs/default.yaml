@@ -10,6 +10,7 @@ train:
   epochs: 50
   val_freq: 5
   batch_size: 1
+  gradient_acc: 20
   num_workers: 0
   shuffle: True
   clip_gradient: 20

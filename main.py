@@ -50,15 +50,14 @@ class AttModule(nn.Module):
             sfeatures.append(attn_out)
         return v, torch.cat(sfeatures)
 
-class KLLoss(nn.Module):
+class SimLoss(nn.Module):
 
     def __init__(self):
         super().__init__()
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
-        self.error_metric = nn.KLDivLoss(size_average=True, reduce=True)
+        self.error_metric = nn.CrossEntropyLoss(size_average=True, reduce=True)
 
-    def forward(self, ve, se, label):
-        breakpoint()
+    def get_logits(self, ve, se):
         # normalized features
         ve = ve / ve.norm(dim=-1, keepdim=True)
         se = se / se.norm(dim=-1, keepdim=True)
@@ -66,10 +65,45 @@ class KLLoss(nn.Module):
         # cosine similarity as logits
         logit_scale = self.logit_scale.exp()
         logits_v = logit_scale * ve @ se.t()
+        logits_i = logit_scale * se @ ve.t()   
 
-        probs1 = F.log_softmax(logits_v, 1)
-        loss = self.error_metric(probs1, label)
-        return loss
+        return logits_v, logits_i    
+
+    def get_loss(self, logits_v, logits_i, label):
+        loss_v = self.error_metric(logits_v, label)
+        loss_i = self.error_metric(logits_i, label)
+        return (loss_v + loss_i) / 2.
+
+    def forward(self, ve, se, label):
+        breakpoint()
+        logits_v, logits_i = self.get_logits(ve, se)
+        return self.get_loss(logits_v, logits_i, label)
+
+def get_training_loss(script_emb_buffer, video_emb_buffer, criterion):
+    assert len(script_emb_buffer) == len(video_emb_buffer)
+    num_video = len(script_emb_buffer)
+    se = torch.cat(script_emb_buffer)
+    ve = torch.cat(video_emb_buffer)
+    label = torch.eye(num_video).cuda()
+    return criterion(ve, se, label)
+
+@torch.no_grad()
+def get_testing_meters(video_emb, script_tokens_all, label, text_encoder, criterion):
+    script_tokens_chunks = script_tokens_all.chunk(100)
+    logits_v_buffer = []
+    logits_i_buffer = []
+    for script_tokens in script_tokens_chunks:
+        script_emb = text_encoder(script_tokens)
+        logits_v, logits_i = criterion.get_logits(video_emb, script_emb)
+        logits_v_buffer.append(logits_v)
+        logits_i_buffer.append(logits_i)
+    logits_v_all = torch.cat(logits_v_buffer)
+    logits_i_all = torch.cat(logits_i_buffer)
+    loss = criterion.get_loss(logits_v_all, logits_i_all, label)
+    _, pred_1 = logits_v_all.topk(1)
+    _, pred_5 = logits_v_all.topk(5)
+    return loss, pred_1, pred_5
+    
 
 def get_pretrain_model(path):
     try:
@@ -99,10 +133,10 @@ def main():
     # build dataloader
     Charades_train = CharadesFeatures(mode="train")
     Charades_val = CharadesFeatures(mode="val")
-    # Charades_test = CharadesFeatures(mode="test")
+    Charades_test = CharadesFeatures(mode="test")
     trainloader = DataLoader(Charades_train, batch_size = config["train"]["batch_size"], shuffle = config["train"]["shuffle"], num_workers = config["train"]["num_workers"])
     valloader = DataLoader(Charades_val, batch_size = 1, shuffle = False, num_workers = config["train"]["num_workers"])
-    # testloader = DataLoader(Charades_test, batch_size = 1, shuffle = False, num_workers = config["train"]["num_workers"])
+    testloader = DataLoader(Charades_test, batch_size = 1, shuffle = False, num_workers = config["train"]["num_workers"])
 
     # build model
     text_encoder = TextTransformer(embed_dim=config["text_dim"])
@@ -123,52 +157,65 @@ def main():
     # training setting
     optimizer = _optimizer(config, models)
     lr_scheduler = _lr_scheduler(config, optimizer)
-    criterion = KLLoss()
+    criterion = SimLoss()
     
     # training
     models = train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, config)
 
     # testing
-    # test(testloader, models, criterion, config)
+    test(testloader, models, criterion, config)
 
 
 def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, config):
+    print("-"*80)
+    print("training phase")
     text_encoder, att_module, fusion_module = models
     text_encoder = text_encoder.train().cuda()
     att_module = att_module.train().cuda()
     fusion_module = fusion_module.train().cuda()
 
     classes_dict = trainloader.dataset.classes
-    script_tokens = trainloader.dataset.script_tokens.cuda()
+    script_tokens_all = trainloader.dataset.script_tokens.cuda()
     epochs = config["train"]["epochs"]
     val_freq = config["train"]["val_freq"]
 
     for epoch in range(epochs):
         print("-"*80)
         print("{}/{} training epochs".format(epoch, epochs))
-        for _, (vfeatures, actions, label) in enumerate(tqdm(trainloader)):
+        script_emb_buffer = []
+        video_emb_buffer = []
+        label_buffer = []
+
+        for step, (vfeatures, actions, label) in enumerate(tqdm(trainloader)):
             vfeatures = vfeatures.cuda()
+            script_tokens = script_tokens_all(label)
             prompted_texts, _ = generate_prompted_text(actions, classes_dict)
             prompted_texts = [x.cuda() for x in prompted_texts]
             prompted_texts_emb = [text_encoder(text) for text in prompted_texts]
-            script_tokens_chunks = script_tokens.chunk(100)
-            script_emd_chunks = []
-            for script_tokens in script_tokens_chunks:
-                script_emd_chunks.append(text_encoder(script_tokens))
-            script_emb = torch.cat(script_emd_chunks)
+            script_emb = text_encoder(script_tokens)
             vfeatures, sfeatures = att_module(vfeatures, prompted_texts_emb)
             video_emb = fusion_module(vfeatures, sfeatures)
 
-            loss = criterion(video_emb, script_emb, label)
-            loss.backward()
+            script_emb_buffer.append(script_emb)
+            video_emb_buffer.append(video_emb)
+            label_buffer.append(label)
 
-            optimizer.step()
-            lr_scheduler.step()
+            if step % config["train"]["gradient_acc"] == 0:
+                loss = get_training_loss(script_emb_buffer, video_emb_buffer, criterion)
+                print("Training loss: {}".format(loss.item()))
+                loss.backward()
 
-        print("Training loss: {}".format(loss.item()))
+                optimizer.step()
+                lr_scheduler.step()
+
+                script_emb_buffer.clear()
+                video_emb_buffer.clear()
+                label_buffer.clear()
 
         if epoch % val_freq == 0:
-            test()
+            print("-"*80)
+            print("{}/{} val epochs".format(epoch // val_freq, epochs // val_freq))
+            test(valloader, models, criterion, config)
             torch.save({
         'epoch': epoch,
         'text_encoder_state_dict': text_encoder.state_dict(),
@@ -177,13 +224,41 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
         'optimizer_state_dict': optimizer.state_dict(),
     }, config["working_dir"])
 
-        print("-"*80)
+
+    print("training end")
+    print("-"*80)
 
 
-
+@torch.no_grad()
 def test(testloader, models, criterion, config):
-    pass
-            
+    print("-"*80)
+    print("testing phase")
+    text_encoder, att_module, fusion_module = models
+    text_encoder = text_encoder.eval().cuda()
+    att_module = att_module.eval().cuda()
+    fusion_module = fusion_module.eval().cuda()
+
+    classes_dict = testloader.dataset.classes
+    script_tokens_all = testloader.dataset.script_tokens.cuda()
+    total_loss, top1_acc, top5_acc= 0., 0., 0.
+
+    for step, (vfeatures, actions, label) in enumerate(tqdm(testloader)):
+        vfeatures = vfeatures.cuda()
+        prompted_texts, _ = generate_prompted_text(actions, classes_dict)
+        prompted_texts = [x.cuda() for x in prompted_texts]
+        prompted_texts_emb = [text_encoder(text) for text in prompted_texts]
+        vfeatures, sfeatures = att_module(vfeatures, prompted_texts_emb)
+        video_emb = fusion_module(vfeatures, sfeatures)
+
+        loss, pred_1, pred_5 = get_testing_meters(video_emb, script_tokens_all, label, text_encoder, criterion)
+        total_loss = (total_loss * (step - 1) + loss.item()) / step
+        top1_acc = (top1_acc * (step - 1) + pred_1.item()) / step
+        top5_acc = (top5_acc * (step - 1) + pred_5.item()) / step
+        
+    print("Testing: \n loss: {} \n top1_acc: {} \n top5_acc: {}".format(total_loss, top1_acc, top5_acc))
+
+    print("testing end")
+    print("-"*80)
 
 if __name__ == '__main__':
     main()

@@ -118,7 +118,7 @@ class CharadesFeatures(data.Dataset):
         data_list = self.load_pickle(vpath)
         assert len(data_list) == 30 # the feature is 3(views) * 10(clips)
         clip_idx = self.clip_sampler(vlen)
-        actions_list = [[] for _ in range(self.num_clips)]
+        actions_list = [[] for _ in range(len(clip_idx))]
         features_list = []
         for idx, clip in enumerate(clip_idx):
             features_list.append(torch.cat([x[1] for x in data_list[clip*3:(clip+1)*3]]))
@@ -128,7 +128,6 @@ class CharadesFeatures(data.Dataset):
                 if max(start_clip, v[0]) <= min(end_clip, v[1]):
                     actions_list[idx].append(int(k[1:]))
         features = torch.stack(features_list, 0)
-        features = F.pad(features, (0, 0, 0, 0, 0, 0, 0, 0, 0, self.num_clips - features.shape[0]))
         label = torch.zeros(self.num_scripts, 1)
         label[script_id] = 1.
         return features, actions_list, label # features of each clip, actions within each clip, script for each clip
@@ -140,6 +139,6 @@ class CharadesFeatures(data.Dataset):
 
 if __name__ == '__main__':
     dataset = CharadesFeatures(mode="train")
-    train_loader = torch.utils.data.DataLoader(dataset, batch_size = 2, shuffle=True)
+    train_loader = torch.utils.data.DataLoader(dataset, batch_size = 1, shuffle=True)
     for features, actions_list, label in train_loader:
         breakpoint()
