@@ -7,6 +7,8 @@ import json
 import csv
 import pickle
 import torch.utils.data as data
+import torch.nn.functional as F
+from clip import tokenize
 from PIL import Image
 
 
@@ -32,6 +34,7 @@ class CharadesFeatures(data.Dataset):
         self.label_dir = label_dir + "Charades_v1_test.csv" if mode == "test" else label_dir + "Charades_v1_train.csv"
         self.class_dir = class_dir
         self.fps = 24
+        self.num_clips = 10
 
         self.classes = {}
         with open(self.class_dir, 'r') as f:
@@ -58,6 +61,7 @@ class CharadesFeatures(data.Dataset):
 
     def generate_labels_dict(self, file_path):
         labels = {}
+        self.script_pool = []
         with open(file_path, "r") as f:
             reader = csv.reader(f)
             for line in reader:
@@ -68,17 +72,21 @@ class CharadesFeatures(data.Dataset):
                 if len(line[9]) == 0 or not os.path.exists(feature_path):
                     continue
                 labels[video_id] = [None for _ in range(4)] # [script, actions_info, length, feature_path]
-                labels[video_id][0] = line[6]
+                script = line[6] if len(line[6].split(" ")) <= 66 else " ".join(line[6].split(" ")[:66])
+                labels[video_id][0] = len(self.script_pool)
+                self.script_pool.append(script)
                 labels[video_id][1] = {}
                 for action in line[9].split(";"):
                     action_id, start_time, end_time = action.split(" ")
                     labels[video_id][1][action_id] = (int(np.ceil(float(start_time)*self.fps)), int(np.floor(float(end_time)*self.fps)))
                 labels[video_id][2] = float(line[-1])
                 labels[video_id][3] = feature_path
+        self.script_tokens = tokenize(self.script_pool)
+        self.num_scripts = len(self.script_pool)
         return labels
 
     def clip_sampler(self, vlen):
-        num_clips = int(min(np.ceil(vlen / 5), 10))
+        num_clips = int(min(np.ceil(vlen / 5), self.num_clips))
         if num_clips <= 1:
             return [0]
         elif num_clips < 6:
@@ -106,23 +114,24 @@ class CharadesFeatures(data.Dataset):
 
     def __getitem__(self, index):
         video_id = self.data_split[index][:5]
-        script, actions, vlen, vpath = self.labels[video_id]
+        script_id, actions, vlen, vpath = self.labels[video_id]
         data_list = self.load_pickle(vpath)
         assert len(data_list) == 30 # the feature is 3(views) * 10(clips)
         clip_idx = self.clip_sampler(vlen)
-        actions_list = []
+        actions_list = [[] for _ in range(self.num_clips)]
         features_list = []
-        for clip in clip_idx:
+        for idx, clip in enumerate(clip_idx):
             features_list.append(torch.cat([x[1] for x in data_list[clip*3:(clip+1)*3]]))
-            cur_actions = []
             start_clip = int(data_list[clip*3][0][0][6:12])
             end_clip = int(data_list[clip*3][0][-1][6:12])
             for k,v in actions.items():
                 if max(start_clip, v[0]) <= min(end_clip, v[1]):
-                    cur_actions.append(int(k[1:]))
-            actions_list.append(cur_actions)
+                    actions_list[idx].append(int(k[1:]))
         features = torch.stack(features_list, 0)
-        return features, actions_list, script # features of each clip, actions within each clip, script for each clip
+        features = F.pad(features, (0, 0, 0, 0, 0, 0, 0, 0, 0, self.num_clips - features.shape[0]))
+        label = torch.zeros(self.num_scripts, 1)
+        label[script_id] = 1.
+        return features, actions_list, label # features of each clip, actions within each clip, script for each clip
 
     def __len__(self):
         # return the number of videos in this dataset
@@ -131,6 +140,6 @@ class CharadesFeatures(data.Dataset):
 
 if __name__ == '__main__':
     dataset = CharadesFeatures(mode="train")
-    train_loader = torch.utils.data.DataLoader(dataset)
-    for features, actions_list, script in train_loader:
+    train_loader = torch.utils.data.DataLoader(dataset, batch_size = 2, shuffle=True)
+    for features, actions_list, label in train_loader:
         breakpoint()

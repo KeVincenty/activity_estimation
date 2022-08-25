@@ -106,9 +106,27 @@ class TextTransformer(nn.Module):
         self.resblocks = nn.Sequential(
             *[ResidualAttentionBlock(width, heads, attn_mask, dropout=dropout[i]) for i in range(layers)])
 
+        self.initialize_parameters()
+
     @property
     def dtype(self):
         return self.text_projection.dtype
+
+    def initialize_parameters(self):
+        nn.init.normal_(self.token_embedding.weight, std=0.02)
+        nn.init.normal_(self.positional_embedding, std=0.01)
+
+        proj_std = (self.width ** -0.5) * ((2 * self.layers) ** -0.5)
+        attn_std = self.width ** -0.5
+        fc_std = (2 * self.width) ** -0.5
+        for block in self.resblocks:
+            nn.init.normal_(block.attn.in_proj_weight, std=attn_std)
+            nn.init.normal_(block.attn.out_proj.weight, std=proj_std)
+            nn.init.normal_(block.mlp.c_fc.weight, std=fc_std)
+            nn.init.normal_(block.mlp.c_proj.weight, std=proj_std)
+
+        if self.text_projection is not None:
+            nn.init.normal_(self.text_projection, std=self.width ** -0.5)
     
     def build_attention_mask(self):
         # lazily create causal attention mask, with full attention between the vision tokens
@@ -325,7 +343,7 @@ class CLIP(nn.Module):
         return logits_per_image, logits_per_text
 
 class FusionTransformer(nn.Module):
-    def __init__(self, clip_length=None, embed_dim=2048, n_layers=6):
+    def __init__(self, clip_length=10, embed_dim=2048, n_layers=6):
         super(FusionTransformer, self).__init__()
         self.clip_length = clip_length
         drop_rate = 0.
@@ -336,6 +354,7 @@ class FusionTransformer(nn.Module):
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(torch.zeros(1, clip_length + 1, embed_dim))
         self.pos_drop = nn.Dropout(p=drop_rate)
+        self.projection = nn.Linear(embed_dim, embed_dim//2)
 
         with torch.no_grad():
             trunc_normal_(self.pos_embed, std=.02)
@@ -352,17 +371,14 @@ class FusionTransformer(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def forward(self, x):
-        nvids = x.shape[0]
-
-        cls_tokens = self.cls_token.expand(nvids, -1, -1)
-        x = torch.cat((cls_tokens, x), dim=1)
+    def forward(self, v, s):
+        x = torch.concat([v.unsqueeze(0), s.unsqueeze(0)], dim=-1)
+        x = F.pad(x, (0, 0, 0, self.clip_length - x.shape[1], 0, 0))
+        x = torch.concat([self.cls_token, x], dim=1)
         x = x + self.pos_embed
         x.transpose_(1, 0)
         o = self.transformer_enc(x)
-
-        return o[0]
-
+        return self.projection(o[0])
 
 def convert_weights(model: nn.Module):
     """Convert applicable model parameters to fp16"""

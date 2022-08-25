@@ -1,11 +1,17 @@
+exp_name: "debug"
 root_dir: "/root/workspace/activity_estimation/"
 pretrain: True
 model_path: "/root/workspace/activity_estimation/models/ViT-B-16.pt"
-feature_dim: 2304
+visual_dim: 2304
+text_dim: 2048
+emb_dim: 2048
 clip_length: 10
 train:
   epochs: 50
   val_freq: 5
+  batch_size: 1
+  num_workers: 0
+  shuffle: True
   clip_gradient: 20
   optimizer: 
     type: "adamw"
