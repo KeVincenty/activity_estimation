@@ -1,23 +1,16 @@
 import os
-from turtle import forward
-import clip
-from clip.model import TextTransformer, FusionTransformer
+from modules.model import TextTransformer, FusionTransformer
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from datasets import CharadesFeatures
+from modules.datasets import CharadesFeatures
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import wandb
 import argparse
-import shutil
-from pathlib import Path
 import yaml
-from dotmap import DotMap
-import pprint
 from utils.solver import _optimizer, _lr_scheduler
-from utils.tools import *
 from utils.text_prompt import *
 
 class TextEncoder(nn.Module):
@@ -66,16 +59,14 @@ class SimLoss(nn.Module):
         logit_scale = self.logit_scale.exp()
         logits_v = logit_scale * ve @ se.t()
         logits_i = logit_scale * se @ ve.t()   
-
         return logits_v, logits_i    
 
     def get_loss(self, logits_v, logits_i, label):
         loss_v = self.error_metric(logits_v, label)
-        loss_i = self.error_metric(logits_i, label)
+        loss_i = self.error_metric(logits_i, label.t())
         return (loss_v + loss_i) / 2.
 
     def forward(self, ve, se, label):
-        breakpoint()
         logits_v, logits_i = self.get_logits(ve, se)
         return self.get_loss(logits_v, logits_i, label)
 
@@ -97,11 +88,14 @@ def get_testing_meters(video_emb, script_tokens_all, label, text_encoder, criter
         logits_v, logits_i = criterion.get_logits(video_emb, script_emb)
         logits_v_buffer.append(logits_v)
         logits_i_buffer.append(logits_i)
-    logits_v_all = torch.cat(logits_v_buffer)
-    logits_i_all = torch.cat(logits_i_buffer)
+    logits_v_all = torch.cat(logits_v_buffer, dim=-1)
+    logits_i_all = torch.cat(logits_i_buffer, dim=0)
+    label = label.squeeze(-1)
     loss = criterion.get_loss(logits_v_all, logits_i_all, label)
     _, pred_1 = logits_v_all.topk(1)
     _, pred_5 = logits_v_all.topk(5)
+    pred_1 = pred_1.item() == label.nonzero().sum().item()
+    pred_5 = label.nonzero().sum().item() in pred_5[0].tolist()
     return loss, pred_1, pred_5
     
 
@@ -129,6 +123,7 @@ def main():
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
     config["working_dir"] = os.path.join(config["output_dir"], config["exp_name"])
+    os.makedirs(config["working_dir"], exist_ok=True)
 
     # build dataloader
     Charades_train = CharadesFeatures(mode="train")
@@ -159,6 +154,7 @@ def main():
     lr_scheduler = _lr_scheduler(config, optimizer)
     criterion = SimLoss()
     
+    #TODO: multigpu training
     # training
     models = train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, config)
 
@@ -188,7 +184,7 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
 
         for step, (vfeatures, actions, label) in enumerate(tqdm(trainloader)):
             vfeatures = vfeatures.cuda()
-            script_tokens = script_tokens_all(label)
+            script_tokens = script_tokens_all[label.nonzero().sum().item()].unsqueeze(0)
             prompted_texts, _ = generate_prompted_text(actions, classes_dict)
             prompted_texts = [x.cuda() for x in prompted_texts]
             prompted_texts_emb = [text_encoder(text) for text in prompted_texts]
@@ -200,9 +196,10 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
             video_emb_buffer.append(video_emb)
             label_buffer.append(label)
 
-            if step % config["train"]["gradient_acc"] == 0:
+            if (step + 1) % config["train"]["gradient_acc"] == 0:
                 loss = get_training_loss(script_emb_buffer, video_emb_buffer, criterion)
-                print("Training loss: {}".format(loss.item()))
+                print("Training loss: {:.3f}".format(loss.item()))
+                #TODO: display training curve use tensorboard or wandb
                 loss.backward()
 
                 optimizer.step()
@@ -211,22 +208,28 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
                 script_emb_buffer.clear()
                 video_emb_buffer.clear()
                 label_buffer.clear()
+            
+            if step == 20:
+                break
 
-        if epoch % val_freq == 0:
+        if (epoch + 1) % val_freq == 0:
             print("-"*80)
             print("{}/{} val epochs".format(epoch // val_freq, epochs // val_freq))
-            test(valloader, models, criterion, config)
+            test(valloader, [text_encoder, att_module, fusion_module], criterion, config)
             torch.save({
         'epoch': epoch,
         'text_encoder_state_dict': text_encoder.state_dict(),
         'att_module_state_dict': att_module.state_dict(),
         'fusion_module_state_dict': fusion_module.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
-    }, config["working_dir"])
-
+    }, os.path.join(config["working_dir"], "epoch_{}.pt".format(epoch)))
+            text_encoder = text_encoder.train()
+            att_module = att_module.train()
+            fusion_module = fusion_module.train()
 
     print("training end")
     print("-"*80)
+    return [text_encoder, att_module, fusion_module]
 
 
 @torch.no_grad()
@@ -244,6 +247,7 @@ def test(testloader, models, criterion, config):
 
     for step, (vfeatures, actions, label) in enumerate(tqdm(testloader)):
         vfeatures = vfeatures.cuda()
+        label = label.cuda()
         prompted_texts, _ = generate_prompted_text(actions, classes_dict)
         prompted_texts = [x.cuda() for x in prompted_texts]
         prompted_texts_emb = [text_encoder(text) for text in prompted_texts]
@@ -251,11 +255,14 @@ def test(testloader, models, criterion, config):
         video_emb = fusion_module(vfeatures, sfeatures)
 
         loss, pred_1, pred_5 = get_testing_meters(video_emb, script_tokens_all, label, text_encoder, criterion)
-        total_loss = (total_loss * (step - 1) + loss.item()) / step
-        top1_acc = (top1_acc * (step - 1) + pred_1.item()) / step
-        top5_acc = (top5_acc * (step - 1) + pred_5.item()) / step
+        total_loss = (total_loss * step + loss.item()) / (step + 1)
+        top1_acc = (top1_acc * step  + pred_1) / (step + 1)
+        top5_acc = (top5_acc * step  + pred_5) / (step + 1)
+        if step == 10:
+            break
         
-    print("Testing: \n loss: {} \n top1_acc: {} \n top5_acc: {}".format(total_loss, top1_acc, top5_acc))
+    print("Testing: \n loss: {:.3f} \n top1_acc: {:.2f} \n top5_acc: {:.2f}".format(total_loss, top1_acc, top5_acc))
+    #TODO: display testing curve use tensorboard or wandb
 
     print("testing end")
     print("-"*80)

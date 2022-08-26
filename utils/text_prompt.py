@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from clip import tokenize
+from modules.simple_tokenizer import tokenize
 
 def generate_prompted_text(actions_list, classes_dict, num_actions=0):
 
@@ -26,10 +26,10 @@ def generate_prompted_text(actions_list, classes_dict, num_actions=0):
         prompt_idx = np.random.randint(len(text_acts), size=len(actions))
         cur_text = []
         for idx, action in enumerate(actions):
-            try:
+            if isinstance(action, str):
+                label = classes_dict[action]
+            else:
                 label = classes_dict["c"+str(action.item()).zfill(3)].lower().replace("/"," or ")
-            except Exception:
-                breakpoint()
             if "someone is" in label:
                 label = label.split("someone is")[-1].strip()
             cur_text.append(text_acts[prompt_idx[idx]].format(label))

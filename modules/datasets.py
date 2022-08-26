@@ -8,7 +8,7 @@ import csv
 import pickle
 import torch.utils.data as data
 import torch.nn.functional as F
-from clip import tokenize
+from modules.simple_tokenizer import tokenize
 from PIL import Image
 
 
@@ -72,7 +72,7 @@ class CharadesFeatures(data.Dataset):
                 if len(line[9]) == 0 or not os.path.exists(feature_path):
                     continue
                 labels[video_id] = [None for _ in range(4)] # [script, actions_info, length, feature_path]
-                script = line[6] if len(line[6].split(" ")) <= 66 else " ".join(line[6].split(" ")[:66])
+                script = line[6] if len(line[6].split(" ")) <= 60 else " ".join(line[6].split(" ")[:60])
                 labels[video_id][0] = len(self.script_pool)
                 self.script_pool.append(script)
                 labels[video_id][1] = {}
