@@ -13,14 +13,6 @@ import yaml
 from utils.solver import _optimizer, _lr_scheduler
 from utils.text_prompt import *
 
-class TextEncoder(nn.Module):
-    def __init__(self, model):
-        super(TextEncoder, self).__init__()
-        self.model = model
-
-    def forward(self, text):
-        return self.model.encode_text(text)
-
 class AttModule(nn.Module):
     def __init__(self, in_features, text_dim, emb_dim, n_head = 8, dropout = 0.):
         super().__init__()
@@ -180,7 +172,6 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
         print("{}/{} training epochs".format(epoch, epochs))
         script_emb_buffer = []
         video_emb_buffer = []
-        label_buffer = []
 
         for step, (vfeatures, actions, label) in enumerate(tqdm(trainloader)):
             vfeatures = vfeatures.cuda()
@@ -194,7 +185,6 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
 
             script_emb_buffer.append(script_emb)
             video_emb_buffer.append(video_emb)
-            label_buffer.append(label)
 
             if (step + 1) % config["train"]["gradient_acc"] == 0:
                 loss = get_training_loss(script_emb_buffer, video_emb_buffer, criterion)
@@ -207,10 +197,8 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
 
                 script_emb_buffer.clear()
                 video_emb_buffer.clear()
-                label_buffer.clear()
-            
-            if step == 20:
-                break
+
+        lr_scheduler.step()
 
         if (epoch + 1) % val_freq == 0:
             print("-"*80)
@@ -258,8 +246,6 @@ def test(testloader, models, criterion, config):
         total_loss = (total_loss * step + loss.item()) / (step + 1)
         top1_acc = (top1_acc * step  + pred_1) / (step + 1)
         top5_acc = (top5_acc * step  + pred_5) / (step + 1)
-        if step == 10:
-            break
         
     print("Testing: \n loss: {:.3f} \n top1_acc: {:.2f} \n top5_acc: {:.2f}".format(total_loss, top1_acc, top5_acc))
     #TODO: display testing curve use tensorboard or wandb

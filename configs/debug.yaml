@@ -1,4 +1,4 @@
-exp_name: "default"
+exp_name: "debug"
 root_dir: "/root/workspace/activity_estimation/"
 pretrain: True
 model_path: "/root/workspace/activity_estimation/models/ViT-B-16.pt"
@@ -7,7 +7,7 @@ text_dim: 2048
 emb_dim: 2048
 clip_length: 10
 train:
-  epochs: 50
+  epochs: 6
   val_freq: 5
   batch_size: 1
   gradient_acc: 20
