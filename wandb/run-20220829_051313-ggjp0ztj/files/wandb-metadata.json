@@ -1,0 +1,29 @@
+{
+    "os": "Linux-5.13.0-28-generic-x86_64-with-glibc2.17",
+    "python": "3.8.13",
+    "heartbeatAt": "2022-08-29T05:13:14.343062",
+    "startedAt": "2022-08-29T05:13:13.493926",
+    "docker": null,
+    "gpu": "NVIDIA RTX A6000",
+    "gpu_count": 2,
+    "cpu_count": 16,
+    "cuda": null,
+    "args": [
+        "--config",
+        "./configs/debug.yaml",
+        "--exp_time",
+        "20220829_051311"
+    ],
+    "state": "running",
+    "program": "main.py",
+    "codePath": "main.py",
+    "git": {
+        "remote": "https://github.com/KeVincenty/activity_estimation.git",
+        "commit": "da282a1402f39eb168c2a6fc55510b82e9371510"
+    },
+    "email": "kevincenty226@gmail.com",
+    "root": "/root/workspace/activity_estimation",
+    "host": "d3070e3831b1",
+    "username": "root",
+    "executable": "/opt/anaconda3/envs/slow-fast/bin/python"
+}

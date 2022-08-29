@@ -2,7 +2,7 @@ import torch.optim as optim
 from utils.lr_scheduler import WarmupMultiStepLR, WarmupCosineAnnealingLR
 
 
-def _optimizer(config, models):
+def build_optimizer(config, models):
     if config["train"]["optimizer"]["type"] == 'adam':
         optimizer = optim.Adam([{"params": model.parameters()} for model in models], lr=config["train"]["optimizer"]["lr"], betas=(0.9, 0.98), eps=1e-8,
                                weight_decay=0.2)  # Params used from paper, the lr is smaller, more safe for fine tuning to new dataset
@@ -28,27 +28,28 @@ def _optimizer(config, models):
 
     return optimizer
 
-def _lr_scheduler(config, optimizer):
+def build_lr_scheduler(config, optimizer):
     if config["train"]["lr_scheduler"]["type"] == 'cosine':
         lr_scheduler = WarmupCosineAnnealingLR(
             optimizer,
-            config["train"]["epochs"],
-            warmup_epochs=config["train"]["lr_scheduler"]["lr_warmup_step"]
+            config["train"]["steps_per_epoch"]*config["train"]["epochs"],
+            warmup_epochs=config["train"]["steps_per_epoch"]*config["train"]["lr_scheduler"]["lr_warmup_epoch"],
+            warmup_lrs=1.e-8
         )
     elif config["train"]["lr_scheduler"]["type"] == 'multistep':
-        if isinstance(config["train"]["lr_scheduler"]["lr_decay_step"], list):
-            milestones = config["train"]["lr_scheduler"]["lr_decay_step"]
-        elif isinstance(config["train"]["lr_scheduler"]["lr_decay_step"], int):
+        if isinstance(config["train"]["lr_scheduler"]["lr_decay_epoch"], list):
+            milestones = config["train"]["lr_scheduler"]["lr_decay_epoch"]
+        elif isinstance(config["train"]["lr_scheduler"]["lr_decay_epoch"], int):
             milestones = [
-                config["train"]["lr_scheduler"]["lr_decay_step"] * (i + 1)
+                config["train"]["lr_scheduler"]["lr_decay_epoch"] * (i + 1)
                 for i in range(config["train"]["epochs"] //
-                               config["train"]["lr_scheduler"]["lr_decay_step"])]
+                               config["train"]["lr_scheduler"]["lr_decay_epoch"])]
         else:
-            raise ValueError("error learning rate decay step: {}".format(type(config["train"]["lr_scheduler"]["lr_decay_step"])))
+            raise ValueError("error learning rate decay step: {}".format(type(config["train"]["lr_scheduler"]["lr_decay_epoch"])))
         lr_scheduler = WarmupMultiStepLR(
             optimizer,
             milestones,
-            warmup_epochs=config["train"]["lr_scheduler"]["lr_warmup_step"]
+            warmup_epochs=config["train"]["lr_scheduler"]["lr_warmup_epoch"]
         )
     else:
         raise ValueError('Unknown lr scheduler: {}'.format(config["train"]["lr_scheduler"]["type"]))

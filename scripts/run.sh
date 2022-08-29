@@ -6,4 +6,6 @@ else
   exit
 fi
 
-python -u main.py  --config ${config} 
+now=$(date +"%Y%m%d_%H%M%S")
+
+python -u main.py  --config ${config} --exp_time ${now}

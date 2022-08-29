@@ -1,0 +1,114 @@
+--------------------------------------------------------------------------------
+initializing train set!
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+initializing val set!
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+initializing test set!
+--------------------------------------------------------------------------------
+dropout used:[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+--------------------------------------------------------------------------------
+model size
+TextTransformer: 244.96MB
+AttModule: 274.05MB
+FusionTransformer: 1953.12MB
+total size: 2472.12MB
+--------------------------------------------------------------------------------
+Using AdamW as optimizer
+learning rate is 5e-06 for TextTransformer
+learning rate is 5e-06 for AttModule
+learning rate is 5e-06 for FusionTransformer
+--------------------------------------------------------------------------------
+training phase
+/opt/anaconda3/envs/slow-fast/lib/python3.8/site-packages/torch/nn/_reduction.py:42: UserWarning: size_average and reduce args will be deprecated, please use reduction='mean' instead.
+  warnings.warn(warning.format(ret))
+--------------------------------------------------------------------------------
+0/6 training epochs
+
+  0%|▍                                                                                                                                                                        | 19/7029 [00:03<18:22,  6.36it/s]
+
+  0%|▍                                                                                                                                                                      | 20/7029 [00:05<1:28:18,  1.32it/s]
+
+
+  1%|█                                                                                                                                                                        | 45/7029 [00:09<28:09,  4.13it/s]
+
+
+  1%|█▋                                                                                                                                                                       | 69/7029 [00:13<17:59,  6.45it/s]
+
+
+  1%|██▏                                                                                                                                                                      | 91/7029 [00:17<15:10,  7.62it/s]
+
+
+  2%|██▋                                                                                                                                                                     | 115/7029 [00:21<11:32,  9.98it/s]
+
+
+  2%|███▎                                                                                                                                                                    | 139/7029 [00:25<09:53, 11.61it/s]
+
+  2%|███▎                                                                                                                                                                    | 141/7029 [00:27<43:46,  2.62it/s]
+
+
+  2%|████                                                                                                                                                                    | 171/7029 [00:32<13:22,  8.55it/s]
+
+
+  3%|████▋                                                                                                                                                                   | 198/7029 [00:36<11:30,  9.89it/s]
+Training step:199 Training loss: 2.982
+
+
+  3%|█████▎                                                                                                                                                                  | 223/7029 [00:42<34:23,  3.30it/s]
+
+
+  4%|█████▉                                                                                                                                                                  | 247/7029 [00:45<21:33,  5.24it/s]
+
+
+  4%|██████▌                                                                                                                                                                 | 273/7029 [00:50<11:45,  9.57it/s]
+
+
+  4%|███████                                                                                                                                                                 | 298/7029 [00:54<10:14, 10.96it/s]
+
+  5%|███████▌                                                                                                                                                                | 319/7029 [00:57<08:35, 13.02it/s]
+
+  5%|███████▋                                                                                                                                                                | 321/7029 [01:00<44:43,  2.50it/s]
+
+
+  5%|████████▏                                                                                                                                                               | 345/7029 [01:04<27:03,  4.12it/s]
+
+
+  5%|████████▊                                                                                                                                                               | 369/7029 [01:08<17:07,  6.48it/s]
+
+
+  6%|█████████▌                                                                                                                                                              | 398/7029 [01:12<09:40, 11.42it/s]
+
+  6%|██████████                                                                                                                                                              | 419/7029 [01:15<08:35, 12.83it/s]
+
+  6%|██████████                                                                                                                                                              | 421/7029 [01:18<46:19,  2.38it/s]
+
+
+  6%|██████████▋                                                                                                                                                             | 447/7029 [01:22<19:47,  5.54it/s]
+
+
+  7%|███████████▎                                                                                                                                                            | 473/7029 [01:26<12:07,  9.01it/s]
+
+  7%|███████████▋                                                                                                                                                            | 489/7029 [01:29<20:02,  5.44it/s]
+Traceback (most recent call last):
+  File "main.py", line 279, in <module>
+    main()
+  File "main.py", line 167, in main
+    models = train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, config)
+  File "main.py", line 197, in train
+    prompted_texts_emb = [text_encoder(text) for text in prompted_texts]
+  File "main.py", line 197, in <listcomp>
+    prompted_texts_emb = [text_encoder(text) for text in prompted_texts]
+  File "/opt/anaconda3/envs/slow-fast/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1130, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/root/workspace/activity_estimation/modules/model.py", line 147, in forward
+    x = self.resblocks(x)
+  File "/opt/anaconda3/envs/slow-fast/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1130, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/opt/anaconda3/envs/slow-fast/lib/python3.8/site-packages/torch/nn/modules/container.py", line 139, in forward
+    input = module(input)
+  File "/opt/anaconda3/envs/slow-fast/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1130, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/root/workspace/activity_estimation/modules/model.py", line 80, in forward
+    x = x + self.drop_path(self.mlp(self.ln_2(x)))
+KeyboardInterrupt

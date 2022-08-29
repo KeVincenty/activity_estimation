@@ -1,0 +1,27 @@
+--------------------------------------------------------------------------------
+initializing train set!
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+initializing val set!
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+initializing test set!
+--------------------------------------------------------------------------------
+dropout used:[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+Traceback (most recent call last):
+  File "main.py", line 279, in <module>
+    main()
+  File "main.py", line 161, in main
+    optimizer = _optimizer(config, models)
+  File "/root/workspace/activity_estimation/utils/solver.py", line 19, in _optimizer
+    optimizer = optim.AdamW([{"params": model.parameters()} for model in models],
+  File "/opt/anaconda3/envs/slow-fast/lib/python3.8/site-packages/torch/optim/adamw.py", line 78, in __init__
+    if not 0.0 <= lr:
+TypeError: '<=' not supported between instances of 'float' and 'str'
+--------------------------------------------------------------------------------
+model size
+TextTransformer: 244.96MB
+AttModule: 274.05MB
+FusionTransformer: 1953.12MB
+total size: 2472.12MB
+--------------------------------------------------------------------------------

@@ -10,7 +10,7 @@ from tqdm import tqdm
 import wandb
 import argparse
 import yaml
-from utils.solver import _optimizer, _lr_scheduler
+from utils.solver import *
 from utils.text_prompt import *
 
 class AttModule(nn.Module):
@@ -90,7 +90,6 @@ def get_testing_meters(video_emb, script_tokens_all, label, text_encoder, criter
     pred_5 = label.nonzero().sum().item() in pred_5[0].tolist()
     return loss, pred_1, pred_5
     
-
 def get_pretrain_model(path):
     try:
         model_state_dict = torch.jit.load(path, map_location="cpu").state_dict()
@@ -106,16 +105,28 @@ def get_pretrain_model(path):
 
     return model_state_dict
 
+def get_model_size(model):
+    param_size = 0
+    for param in model.parameters():
+        if param.requires_grad:
+            param_size += param.nelement() * param.element_size()
+    return param_size / 1024**2
+
 def main():
     # setup config
     global args
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', '-cfg', default='./configs/default.yaml')
+    parser.add_argument('--exp_time', default='00000000_000000')
     args = parser.parse_args()
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
-    config["working_dir"] = os.path.join(config["output_dir"], config["exp_name"])
+    config["working_dir"] = os.path.join(config["output_dir"], config["exp_name"] + "_" + args.exp_time)
     os.makedirs(config["working_dir"], exist_ok=True)
+
+    #init wandb
+    if config["wandb"]:
+        wandb.init(project="activity_estimation", name='"activity_estimation"_{}_{}_{}'.format("Charades", config["exp_name"], args.exp_time))
 
     # build dataloader
     Charades_train = CharadesFeatures(mode="train")
@@ -133,17 +144,25 @@ def main():
     att_module = AttModule(config["visual_dim"], config["text_dim"], config["emb_dim"])
     fusion_module = FusionTransformer(clip_length=config["clip_length"], embed_dim=config["emb_dim"]*2)
     models = [text_encoder, att_module, fusion_module]
+    if config["wandb"]:
+        wandb.watch(text_encoder, att_module, fusion_module)
 
     print("-"*80)
-    print("model details:")
+    print("model size")
+    total_size = 0
     for model in models:
-        for k, v in model.named_parameters():
-            print('{}: {}'.format(k, v.requires_grad))
+        model_size = get_model_size(model)
+        total_size += model_size
+        print("{}: {:.2f}MB".format(model.__class__.__name__, model_size))
+    print("total size: {:.2f}MB".format(total_size))
     print("-"*80)
 
     # training setting
-    optimizer = _optimizer(config, models)
-    lr_scheduler = _lr_scheduler(config, optimizer)
+    n_trains = len(Charades_train)
+    config["train"]["steps_per_epoch"] = n_trains // config["train"]["gradient_acc"]
+    optimizer = build_optimizer(config, models)
+    lr_scheduler = build_lr_scheduler(config, optimizer)
+    breakpoint()
     criterion = SimLoss()
     
     #TODO: multigpu training
@@ -151,7 +170,7 @@ def main():
     models = train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, config)
 
     # testing
-    test(testloader, models, criterion, config)
+    test("test", testloader, models, criterion, config)
 
 
 def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, config):
@@ -161,6 +180,7 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
     text_encoder = text_encoder.train().cuda()
     att_module = att_module.train().cuda()
     fusion_module = fusion_module.train().cuda()
+    optimizer.zero_grad()
 
     classes_dict = trainloader.dataset.classes
     script_tokens_all = trainloader.dataset.script_tokens.cuda()
@@ -188,22 +208,26 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
 
             if (step + 1) % config["train"]["gradient_acc"] == 0:
                 loss = get_training_loss(script_emb_buffer, video_emb_buffer, criterion)
-                print("Training loss: {:.3f}".format(loss.item()))
-                #TODO: display training curve use tensorboard or wandb
                 loss.backward()
-
                 optimizer.step()
                 lr_scheduler.step()
+                optimizer.zero_grad()
+
+                print("Training step:{} lr: {:.3f} Training loss: {:.3f}".format(step+1, optimizer.param_groups[0]["lr"], loss.item()))
+                record = {"epoch": epoch, "training loss": loss.item(), "lr":  optimizer.param_groups[0]["lr"]}
+                if config["wandb"]:
+                    wandb.log(record)
 
                 script_emb_buffer.clear()
                 video_emb_buffer.clear()
 
-        lr_scheduler.step()
-
+        # validate
         if (epoch + 1) % val_freq == 0:
             print("-"*80)
             print("{}/{} val epochs".format(epoch // val_freq, epochs // val_freq))
-            test(valloader, [text_encoder, att_module, fusion_module], criterion, config)
+
+            test("val", valloader, [text_encoder, att_module, fusion_module], criterion, config, cur_epoch = epoch)
+            # save checkpoint
             torch.save({
         'epoch': epoch,
         'text_encoder_state_dict': text_encoder.state_dict(),
@@ -221,9 +245,10 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
 
 
 @torch.no_grad()
-def test(testloader, models, criterion, config):
+def test(mode, testloader, models, criterion, config, cur_epoch=999):
+    assert mode in ["val", "test"]
     print("-"*80)
-    print("testing phase")
+    print("{} phase".format(mode))
     text_encoder, att_module, fusion_module = models
     text_encoder = text_encoder.eval().cuda()
     att_module = att_module.eval().cuda()
@@ -246,11 +271,15 @@ def test(testloader, models, criterion, config):
         total_loss = (total_loss * step + loss.item()) / (step + 1)
         top1_acc = (top1_acc * step  + pred_1) / (step + 1)
         top5_acc = (top5_acc * step  + pred_5) / (step + 1)
-        
-    print("Testing: \n loss: {:.3f} \n top1_acc: {:.2f} \n top5_acc: {:.2f}".format(total_loss, top1_acc, top5_acc))
-    #TODO: display testing curve use tensorboard or wandb
+        record = {"{} loss".format(mode): total_loss, "{} top1 acc".format(mode): top1_acc, "{} top5 acc".format(mode): top5_acc}
+        if mode == "val":
+            record["epoch"] = cur_epoch
+        if config["wandb"]:
+            wandb.log(record)
 
-    print("testing end")
+    print("{}: \n loss: {:.3f} \n top1_acc: {:.2f} \n top5_acc: {:.2f}".format(mode, total_loss, top1_acc, top5_acc))
+
+    print("{} end".format(mode))
     print("-"*80)
 
 if __name__ == '__main__':

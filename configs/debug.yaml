@@ -1,5 +1,6 @@
 exp_name: "debug"
 root_dir: "/root/workspace/activity_estimation/"
+wandb: False
 pretrain: True
 model_path: "/root/workspace/activity_estimation/models/ViT-B-16.pt"
 visual_dim: 2304
@@ -21,7 +22,7 @@ train:
     weight_decay: 0.2
   lr_scheduler: 
     type: "cosine"
-    lr_warmup_step: 5
-    lr_decay_step: 15
+    lr_warmup_epoch: 5
+    lr_decay_epoch: 15
     lr_decay_factor: 0.1
 output_dir: "/root/workspace/activity_estimation/output"
