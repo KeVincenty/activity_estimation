@@ -10,6 +10,7 @@ from tqdm import tqdm
 import wandb
 import argparse
 import yaml
+import shutil
 from utils.solver import *
 from utils.text_prompt import *
 
@@ -123,6 +124,7 @@ def main():
         config = yaml.safe_load(f)
     config["working_dir"] = os.path.join(config["output_dir"], config["exp_name"] + "_" + args.exp_time)
     os.makedirs(config["working_dir"], exist_ok=True)
+    shutil.copy(args.config, config["working_dir"])
 
     #init wandb
     if config["wandb"]:
@@ -162,7 +164,6 @@ def main():
     config["train"]["steps_per_epoch"] = n_trains // config["train"]["gradient_acc"]
     optimizer = build_optimizer(config, models)
     lr_scheduler = build_lr_scheduler(config, optimizer)
-    breakpoint()
     criterion = SimLoss()
     
     #TODO: multigpu training
@@ -192,6 +193,7 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
         print("{}/{} training epochs".format(epoch, epochs))
         script_emb_buffer = []
         video_emb_buffer = []
+        torch.cuda.empty_cache()
 
         for step, (vfeatures, actions, label) in enumerate(tqdm(trainloader)):
             vfeatures = vfeatures.cuda()
@@ -213,13 +215,14 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
                 lr_scheduler.step()
                 optimizer.zero_grad()
 
-                print("Training step:{} lr: {:.3f} Training loss: {:.3f}".format(step+1, optimizer.param_groups[0]["lr"], loss.item()))
+                print("Training step:{} lr: {} Training loss: {:.3f}".format(step+1, np.format_float_scientific(optimizer.param_groups[0]["lr"]), loss.item()))
                 record = {"epoch": epoch, "training loss": loss.item(), "lr":  optimizer.param_groups[0]["lr"]}
-                if config["wandb"]:
+                if config["wandb"]: 
                     wandb.log(record)
 
                 script_emb_buffer.clear()
                 video_emb_buffer.clear()
+                torch.cuda.empty_cache()
 
         # validate
         if (epoch + 1) % val_freq == 0:
@@ -238,6 +241,8 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
             text_encoder = text_encoder.train()
             att_module = att_module.train()
             fusion_module = fusion_module.train()
+
+        torch.cuda.empty_cache()
 
     print("training end")
     print("-"*80)

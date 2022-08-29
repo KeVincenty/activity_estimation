@@ -11,7 +11,7 @@ train:
   epochs: 50
   val_freq: 5
   batch_size: 1
-  gradient_acc: 20
+  gradient_acc: 32
   num_workers: 8
   shuffle: True
   clip_gradient: 20
@@ -24,5 +24,5 @@ train:
     type: "cosine"
     lr_warmup_epoch: 5
     lr_decay_epoch: 15
-    lr_decay_factor: 0.1
+    lr_decay_factor: 1.e-3
 output_dir: "/root/workspace/activity_estimation/output"

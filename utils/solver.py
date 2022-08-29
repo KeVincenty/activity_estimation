@@ -1,6 +1,7 @@
 import torch.optim as optim
+from torch.optim.lr_scheduler import SequentialLR, ConstantLR, ExponentialLR, LinearLR
 from utils.lr_scheduler import WarmupMultiStepLR, WarmupCosineAnnealingLR
-
+import math
 
 def build_optimizer(config, models):
     if config["train"]["optimizer"]["type"] == 'adam':
@@ -50,6 +51,17 @@ def build_lr_scheduler(config, optimizer):
             optimizer,
             milestones,
             warmup_epochs=config["train"]["lr_scheduler"]["lr_warmup_epoch"]
+        )
+    elif config["train"]["lr_scheduler"]["type"] == 'exp':
+        warmup_steps = config["train"]["steps_per_epoch"] * config["train"]["lr_scheduler"]["lr_warmup_epoch"]
+        holdon_steps = config["train"]["steps_per_epoch"] * (config["train"]["lr_scheduler"]["lr_decay_epoch"] - config["train"]["lr_scheduler"]["lr_warmup_epoch"])
+        decay_steps = config["train"]["steps_per_epoch"] * (config["train"]["lr_scheduler"]["epochs"] - config["train"]["lr_scheduler"]["lr_decay_epoch"])
+        gamma = math.exp(math.log(config["train"]["lr_scheduler"]["lr_decay_factor"]) / decay_steps)
+        scheduler1 = LinearLR(optimizer, start_factor=.01, end_factor=1.0, total_iters=warmup_steps)
+        scheduler2 = ConstantLR(optimizer, factor=1.0, total_iters=holdon_steps)
+        scheduler3 = ExponentialLR(optimizer, gamma)
+        lr_scheduler = SequentialLR(
+            optimizer, [scheduler1, scheduler2, scheduler3], [warmup_steps, warmup_steps + holdon_steps]
         )
     else:
         raise ValueError('Unknown lr scheduler: {}'.format(config["train"]["lr_scheduler"]["type"]))

@@ -11,18 +11,18 @@ train:
   epochs: 6
   val_freq: 5
   batch_size: 1
-  gradient_acc: 20
+  gradient_acc: 32
   num_workers: 8
   shuffle: True
   clip_gradient: 20
   optimizer: 
     type: "adamw"
-    lr: 5.e-6
+    lr: 5.e-4
     momentum: 0.9
     weight_decay: 0.2
   lr_scheduler: 
     type: "cosine"
-    lr_warmup_epoch: 5
-    lr_decay_epoch: 15
-    lr_decay_factor: 0.1
+    lr_warmup_epoch: 1
+    lr_decay_epoch: 3
+    lr_decay_factor: 1.e-3
 output_dir: "/root/workspace/activity_estimation/output"
