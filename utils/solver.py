@@ -55,7 +55,7 @@ def build_lr_scheduler(config, optimizer):
     elif config["train"]["lr_scheduler"]["type"] == 'exp':
         warmup_steps = config["train"]["steps_per_epoch"] * config["train"]["lr_scheduler"]["lr_warmup_epoch"]
         holdon_steps = config["train"]["steps_per_epoch"] * (config["train"]["lr_scheduler"]["lr_decay_epoch"] - config["train"]["lr_scheduler"]["lr_warmup_epoch"])
-        decay_steps = config["train"]["steps_per_epoch"] * (config["train"]["lr_scheduler"]["epochs"] - config["train"]["lr_scheduler"]["lr_decay_epoch"])
+        decay_steps = config["train"]["steps_per_epoch"] * (config["train"]["epochs"] - config["train"]["lr_scheduler"]["lr_decay_epoch"])
         gamma = math.exp(math.log(config["train"]["lr_scheduler"]["lr_decay_factor"]) / decay_steps)
         scheduler1 = LinearLR(optimizer, start_factor=.01, end_factor=1.0, total_iters=warmup_steps)
         scheduler2 = ConstantLR(optimizer, factor=1.0, total_iters=holdon_steps)
