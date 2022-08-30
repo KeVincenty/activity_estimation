@@ -155,10 +155,13 @@ class TextTransformer(nn.Module):
         return x
 
 class FusionTransformer(nn.Module):
-    def __init__(self, clip_length=10, embed_dim=2048, n_layers=6):
+    def __init__(self, clip_length=10, embed_dim=2048, n_layers=6, vsfusion=True):
         super(FusionTransformer, self).__init__()
         self.clip_length = clip_length
+        self.vsfusion = vsfusion
         drop_rate = 0.
+        if vsfusion:
+            embed_dim *= 2
         enc_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=8)
         self.transformer_enc = nn.TransformerEncoder(enc_layer, num_layers=n_layers, norm=nn.LayerNorm(
             embed_dim))
@@ -166,7 +169,8 @@ class FusionTransformer(nn.Module):
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(torch.zeros(1, clip_length + 1, embed_dim))
         self.pos_drop = nn.Dropout(p=drop_rate)
-        self.projection = nn.Linear(embed_dim, embed_dim//2)
+        if vsfusion:
+            self.projection = nn.Linear(embed_dim, embed_dim//2)
 
         with torch.no_grad():
             trunc_normal_(self.pos_embed, std=.02)
@@ -184,13 +188,18 @@ class FusionTransformer(nn.Module):
             nn.init.constant_(m.weight, 1.0)
 
     def forward(self, v, s):
-        x = torch.concat([v.unsqueeze(0), s.unsqueeze(0)], dim=-1)
+        if self.vsfusion:
+            x = torch.concat([v.unsqueeze(0), s.unsqueeze(0)], dim=-1)
+        else:
+            x = s.unsqueeze(0)
         x = F.pad(x, (0, 0, 0, self.clip_length - x.shape[1], 0, 0))
         x = torch.concat([self.cls_token, x], dim=1)
         x = x + self.pos_embed
         x.transpose_(1, 0)
         o = self.transformer_enc(x)
-        return self.projection(o[0])
+        if self.vsfusion:
+            return self.projection(o[0])
+        return o[0]
 
 def convert_weights(model: nn.Module):
     """Convert applicable model parameters to fp16"""

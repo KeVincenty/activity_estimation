@@ -8,4 +8,4 @@ fi
 
 now=$(date +"%Y%m%d_%H%M%S")
 
-python -u main.py  --config ${config} --exp_time ${now}
+CUDA_VISIBLE_DEVICES=$2 python main.py  --config ${config} --exp_time ${now}

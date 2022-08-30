@@ -144,7 +144,7 @@ def main():
         model_state_dict = get_pretrain_model(config["model_path"])
         text_encoder.load_state_dict(model_state_dict, strict=False)
     att_module = AttModule(config["visual_dim"], config["text_dim"], config["emb_dim"])
-    fusion_module = FusionTransformer(clip_length=config["clip_length"], embed_dim=config["emb_dim"]*2)
+    fusion_module = FusionTransformer(clip_length=config["clip_length"], embed_dim=config["emb_dim"], vsfusion=config["vs_fusion"])
     models = [text_encoder, att_module, fusion_module]
     if config["wandb"]:
         wandb.watch(text_encoder, att_module, fusion_module)
@@ -178,9 +178,9 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
     print("-"*80)
     print("training phase")
     text_encoder, att_module, fusion_module = models
-    text_encoder = text_encoder.train().cuda()
-    att_module = att_module.train().cuda()
-    fusion_module = fusion_module.train().cuda()
+    text_encoder = text_encoder.cuda()
+    att_module = att_module.cuda()
+    fusion_module = fusion_module.cuda()
     optimizer.zero_grad()
 
     classes_dict = trainloader.dataset.classes
@@ -191,6 +191,9 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
     for epoch in range(epochs):
         print("-"*80)
         print("{}/{} training epochs".format(epoch, epochs))
+        text_encoder.train()
+        att_module.train()
+        fusion_module.train()
         script_emb_buffer = []
         video_emb_buffer = []
         torch.cuda.empty_cache()
@@ -238,9 +241,6 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
         'fusion_module_state_dict': fusion_module.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
     }, os.path.join(config["working_dir"], "epoch_{}.pt".format(epoch)))
-            text_encoder = text_encoder.train()
-            att_module = att_module.train()
-            fusion_module = fusion_module.train()
 
         torch.cuda.empty_cache()
 
@@ -255,15 +255,15 @@ def test(mode, testloader, models, criterion, config, cur_epoch=999):
     print("-"*80)
     print("{} phase".format(mode))
     text_encoder, att_module, fusion_module = models
-    text_encoder = text_encoder.eval().cuda()
-    att_module = att_module.eval().cuda()
-    fusion_module = fusion_module.eval().cuda()
+    text_encoder = text_encoder.cuda().eval()
+    att_module = att_module.cuda().eval()
+    fusion_module = fusion_module.cuda().eval()
 
     classes_dict = testloader.dataset.classes
     script_tokens_all = testloader.dataset.script_tokens.cuda()
-    total_loss, top1_acc, top5_acc= 0., 0., 0.
+    loss_buffer, top1_acc_buffer, top5_acc_buffer = [], [], []
 
-    for step, (vfeatures, actions, label) in enumerate(tqdm(testloader)):
+    for _, (vfeatures, actions, label) in enumerate(tqdm(testloader)):
         vfeatures = vfeatures.cuda()
         label = label.cuda()
         prompted_texts, _ = generate_prompted_text(actions, classes_dict)
@@ -273,14 +273,19 @@ def test(mode, testloader, models, criterion, config, cur_epoch=999):
         video_emb = fusion_module(vfeatures, sfeatures)
 
         loss, pred_1, pred_5 = get_testing_meters(video_emb, script_tokens_all, label, text_encoder, criterion)
-        total_loss = (total_loss * step + loss.item()) / (step + 1)
-        top1_acc = (top1_acc * step  + pred_1) / (step + 1)
-        top5_acc = (top5_acc * step  + pred_5) / (step + 1)
-        record = {"{} loss".format(mode): total_loss, "{} top1 acc".format(mode): top1_acc, "{} top5 acc".format(mode): top5_acc}
-        if mode == "val":
-            record["epoch"] = cur_epoch
-        if config["wandb"]:
-            wandb.log(record)
+        loss_buffer.append(loss.item())
+        top1_acc_buffer.append(pred_1)
+        top5_acc_buffer.append(pred_5)
+
+    total_loss = sum(loss_buffer) / len(loss_buffer)
+    top1_acc = sum(top1_acc_buffer) / len(top1_acc_buffer)
+    top5_acc = sum(top5_acc_buffer) / len(top5_acc_buffer)
+    
+    record = {"{} loss".format(mode): total_loss, "{} top1 acc".format(mode): top1_acc, "{} top5 acc".format(mode): top5_acc}
+    if mode == "val":
+        record["epoch"] = cur_epoch
+    if config["wandb"]:
+        wandb.log(record)
 
     print("{}: \n loss: {:.3f} \n top1_acc: {:.2f} \n top5_acc: {:.2f}".format(mode, total_loss, top1_acc, top5_acc))
 
