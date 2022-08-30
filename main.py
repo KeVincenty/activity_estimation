@@ -144,7 +144,7 @@ def main():
         model_state_dict = get_pretrain_model(config["model_path"])
         text_encoder.load_state_dict(model_state_dict, strict=False)
     att_module = AttModule(config["visual_dim"], config["text_dim"], config["emb_dim"])
-    fusion_module = FusionTransformer(clip_length=config["clip_length"], embed_dim=config["emb_dim"], vsfusion=config["vs_fusion"])
+    fusion_module = FusionTransformer(clip_length=config["clip_length"], embed_dim=config["emb_dim"], n_layers=config["fusion_layers"], vsfusion=config["vs_fusion"])
     models = [text_encoder, att_module, fusion_module]
     if config["wandb"]:
         wandb.watch(text_encoder, att_module, fusion_module)
@@ -280,7 +280,7 @@ def test(mode, testloader, models, criterion, config, cur_epoch=999):
     total_loss = sum(loss_buffer) / len(loss_buffer)
     top1_acc = sum(top1_acc_buffer) / len(top1_acc_buffer)
     top5_acc = sum(top5_acc_buffer) / len(top5_acc_buffer)
-    
+
     record = {"{} loss".format(mode): total_loss, "{} top1 acc".format(mode): top1_acc, "{} top5 acc".format(mode): top5_acc}
     if mode == "val":
         record["epoch"] = cur_epoch

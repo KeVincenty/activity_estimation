@@ -6,7 +6,8 @@ model_path: "/root/workspace/activity_estimation/models/ViT-B-16.pt"
 visual_dim: 2304
 text_dim: 2048
 emb_dim: 2048
-vsfusion: True
+vs_fusion: True
+fusion_layers: 6
 clip_length: 10
 train:
   epochs: 50
