@@ -36,20 +36,19 @@ class AttModule(nn.Module):
             sfeatures.append(attn_out)
         return v, torch.cat(sfeatures)
 
-class SimLoss(nn.Module):
+class SIMLoss(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
         self.error_metric = nn.CrossEntropyLoss(size_average=True, reduce=True)
 
-    def get_logits(self, ve, se):
+    def get_logits(self, ve, se, logit_scale):
         # normalized features
         ve = ve / ve.norm(dim=-1, keepdim=True)
         se = se / se.norm(dim=-1, keepdim=True)
 
         # cosine similarity as logits
-        logit_scale = self.logit_scale.exp()
+        logit_scale = logit_scale.exp()
         logits_v = logit_scale * ve @ se.t()
         logits_i = logit_scale * se @ ve.t()   
         return logits_v, logits_i    
@@ -59,32 +58,39 @@ class SimLoss(nn.Module):
         loss_i = self.error_metric(logits_i, label.t())
         return (loss_v + loss_i) / 2.
 
-    def forward(self, ve, se, label):
-        logits_v, logits_i = self.get_logits(ve, se)
+    def forward(self, ve, se, label, logit_scale):
+        logits_v, logits_i = self.get_logits(ve, se, logit_scale)
         return self.get_loss(logits_v, logits_i, label)
 
-def get_training_loss(script_emb_buffer, video_emb_buffer, criterion):
-    assert len(script_emb_buffer) == len(video_emb_buffer)
-    num_video = len(script_emb_buffer)
-    se = torch.cat(script_emb_buffer)
+def get_training_loss(activity_emb_buffer, video_emb_buffer, cls_token_buffer, n_actions_buffer, logit_scale, cls_projection, criterion, config):
+    assert len(activity_emb_buffer) == len(video_emb_buffer) and len(criterion) == 2
+    simloss, mseloss = criterion
+    num_video = len(activity_emb_buffer)
+    se = torch.cat(activity_emb_buffer)
     ve = torch.cat(video_emb_buffer)
     label = torch.eye(num_video).cuda()
-    return criterion(ve, se, label)
+    sim_loss = simloss(ve, se, label, logit_scale)
+    cls_token = torch.cat(cls_token_buffer)
+    n_actions = torch.cat(n_actions_buffer).float().cuda()
+    mse_loss = mseloss(cls_token, n_actions, cls_projection)
+    total_loss = config["train"]["loss_ratio"] * mse_loss + sim_loss
+    return total_loss, sim_loss, mse_loss
+
+class MSELoss(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.error_metric = nn.MSELoss(size_average=True, reduce=True)
+
+    def forward(self, x, label, cls_projection):
+        x = cls_projection(x.flatten())
+        return self.error_metric(x, label)
 
 @torch.no_grad()
-def get_testing_meters(video_emb, script_tokens_all, label, text_encoder, criterion):
-    script_tokens_chunks = script_tokens_all.chunk(100)
-    logits_v_buffer = []
-    logits_i_buffer = []
-    for script_tokens in script_tokens_chunks:
-        script_emb = text_encoder(script_tokens)
-        logits_v, logits_i = criterion.get_logits(video_emb, script_emb)
-        logits_v_buffer.append(logits_v)
-        logits_i_buffer.append(logits_i)
-    logits_v_all = torch.cat(logits_v_buffer, dim=-1)
-    logits_i_all = torch.cat(logits_i_buffer, dim=0)
+def get_testing_meters(video_emb, activity_emb, label, fusion_module, criterion, config):
+    logits_v_all, logits_i_all = criterion[0].get_logits(video_emb, activity_emb, fusion_module.logit_scale)
     label = label.squeeze(-1)
-    loss = criterion.get_loss(logits_v_all, logits_i_all, label)
+    loss = criterion[0].get_loss(logits_v_all, logits_i_all, label)
     _, pred_1 = logits_v_all.topk(1)
     _, pred_5 = logits_v_all.topk(5)
     pred_1 = pred_1.item() == label.nonzero().sum().item()
@@ -128,7 +134,7 @@ def main():
 
     #init wandb
     if config["wandb"]:
-        wandb.init(project="activity_estimation", name='"activity_estimation"_{}_{}_{}'.format("Charades", config["exp_name"], args.exp_time))
+        wandb.init(project="activity_estimation", name='{}_{}_{}'.format("Charades", config["exp_name"], args.exp_time))
 
     # build dataloader
     Charades_train = CharadesFeatures(mode="train")
@@ -144,7 +150,7 @@ def main():
         model_state_dict = get_pretrain_model(config["model_path"])
         text_encoder.load_state_dict(model_state_dict, strict=False)
     att_module = AttModule(config["visual_dim"], config["text_dim"], config["emb_dim"])
-    fusion_module = FusionTransformer(clip_length=config["clip_length"], embed_dim=config["emb_dim"], n_layers=config["fusion_layers"], vsfusion=config["vs_fusion"])
+    fusion_module = FusionTransformer(clip_length=config["clip_length"], embed_dim=config["emb_dim"], n_layers=config["fusion_layers"], batch_size=config["train"]["batch_size"]*config["train"]["gradient_acc"], vsfusion=config["vs_fusion"])
     models = [text_encoder, att_module, fusion_module]
     if config["wandb"]:
         wandb.watch(text_encoder, att_module, fusion_module)
@@ -164,7 +170,7 @@ def main():
     config["train"]["steps_per_epoch"] = n_trains // config["train"]["gradient_acc"]
     optimizer = build_optimizer(config, models)
     lr_scheduler = build_lr_scheduler(config, optimizer)
-    criterion = SimLoss()
+    criterion = [SIMLoss(), MSELoss()]
     
     #TODO: multigpu training
     # training
@@ -184,7 +190,7 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
     optimizer.zero_grad()
 
     classes_dict = trainloader.dataset.classes
-    script_tokens_all = trainloader.dataset.script_tokens.cuda()
+    script_tokens_all = trainloader.dataset.script_pool
     epochs = config["train"]["epochs"]
     val_freq = config["train"]["val_freq"]
 
@@ -194,37 +200,44 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
         text_encoder.train()
         att_module.train()
         fusion_module.train()
-        script_emb_buffer = []
+        activity_emb_buffer = []
         video_emb_buffer = []
+        cls_token_buffer = []
+        n_actions_buffer = []
         torch.cuda.empty_cache()
 
-        for step, (vfeatures, actions, label) in enumerate(tqdm(trainloader)):
+        for step, (vfeatures, actions, label, n_actions) in enumerate(tqdm(trainloader)):
             vfeatures = vfeatures.cuda()
-            script_tokens = script_tokens_all[label.nonzero().sum().item()].unsqueeze(0)
-            prompted_texts, _ = generate_prompted_text(actions, classes_dict)
+            script_tokens = script_tokens_all[label.nonzero().sum().item()].cuda()
+            prompted_texts = generate_prompted_text(actions, classes_dict)
             prompted_texts = [x.cuda() for x in prompted_texts]
             prompted_texts_emb = [text_encoder(text) for text in prompted_texts]
             script_emb = text_encoder(script_tokens)
             vfeatures, sfeatures = att_module(vfeatures, prompted_texts_emb)
-            video_emb = fusion_module(vfeatures, sfeatures)
+            cls_token, video_emb = fusion_module(vfeatures, sfeatures)
+            _, activity_emb = fusion_module(vfeatures, script_emb)
 
-            script_emb_buffer.append(script_emb)
+            activity_emb_buffer.append(activity_emb)
             video_emb_buffer.append(video_emb)
+            cls_token_buffer.append(cls_token)
+            n_actions_buffer.append(n_actions)
 
             if (step + 1) % config["train"]["gradient_acc"] == 0:
-                loss = get_training_loss(script_emb_buffer, video_emb_buffer, criterion)
-                loss.backward()
+                total_loss, sim_loss, cnt_loss = get_training_loss(activity_emb_buffer, video_emb_buffer, cls_token_buffer, n_actions_buffer, fusion_module.logit_scale, fusion_module.cls_projection, criterion, config)
+                total_loss.backward()
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad()
 
-                print("Training step:{} lr: {} Training loss: {:.3f}".format(step+1, np.format_float_scientific(optimizer.param_groups[0]["lr"]), loss.item()))
-                record = {"epoch": epoch, "training loss": loss.item(), "lr":  optimizer.param_groups[0]["lr"]}
+                print("Training step:{} lr: {} training loss: {:.3f} sim_loss: {:.3f} cnt_loss: {:.3f}".format(step+1, np.format_float_scientific(optimizer.param_groups[0]["lr"]), total_loss.item(), sim_loss.item(), cnt_loss.item()))
+                record = {"epoch": epoch, "training loss": total_loss.item(), "sim_loss": sim_loss.item(), "cnt_loss": cnt_loss.item(), "lr":  optimizer.param_groups[0]["lr"]}
                 if config["wandb"]: 
                     wandb.log(record)
 
-                script_emb_buffer.clear()
+                activity_emb_buffer.clear()
                 video_emb_buffer.clear()
+                cls_token_buffer.clear()
+                n_actions_buffer.clear()
                 torch.cuda.empty_cache()
 
         # validate
@@ -260,19 +273,26 @@ def test(mode, testloader, models, criterion, config, cur_epoch=999):
     fusion_module = fusion_module.cuda().eval()
 
     classes_dict = testloader.dataset.classes
-    script_tokens_all = testloader.dataset.script_tokens.cuda()
+    script_tokens_all = testloader.dataset.script_pool
+    activity_emb_buffer = []
+    for _, script_tokens in enumerate(script_tokens_all):
+        script_tokens = script_tokens.cuda()
+        script_emb = text_encoder(script_tokens)
+        _, activity_emb = fusion_module(None, script_emb)
+        activity_emb_buffer.append(activity_emb)
+    activity_emb = torch.cat(activity_emb_buffer)
     loss_buffer, top1_acc_buffer, top5_acc_buffer = [], [], []
 
-    for _, (vfeatures, actions, label) in enumerate(tqdm(testloader)):
+    for _, (vfeatures, actions, label, _) in enumerate(tqdm(testloader)):
         vfeatures = vfeatures.cuda()
         label = label.cuda()
-        prompted_texts, _ = generate_prompted_text(actions, classes_dict)
+        prompted_texts = generate_prompted_text(actions, classes_dict)
         prompted_texts = [x.cuda() for x in prompted_texts]
         prompted_texts_emb = [text_encoder(text) for text in prompted_texts]
         vfeatures, sfeatures = att_module(vfeatures, prompted_texts_emb)
-        video_emb = fusion_module(vfeatures, sfeatures)
+        _, video_emb = fusion_module(vfeatures, sfeatures)
 
-        loss, pred_1, pred_5 = get_testing_meters(video_emb, script_tokens_all, label, text_encoder, criterion)
+        loss, pred_1, pred_5 = get_testing_meters(video_emb, activity_emb, label, fusion_module, criterion, config)
         loss_buffer.append(loss.item())
         top1_acc_buffer.append(pred_1)
         top5_acc_buffer.append(pred_5)

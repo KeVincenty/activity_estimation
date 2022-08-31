@@ -1,3 +1,4 @@
+from lib2to3.pgen2 import token
 import os
 import os.path
 import numpy as np
@@ -72,16 +73,22 @@ class CharadesFeatures(data.Dataset):
                 if len(line[9]) == 0 or not os.path.exists(feature_path):
                     continue
                 labels[video_id] = [None for _ in range(4)] # [script, actions_info, length, feature_path]
-                script = line[6] if len(line[6].split(" ")) <= 60 else " ".join(line[6].split(" ")[:60])
+                # script tokens
+                script = line[6]
+                sentences = script.replace(";", ".").split(".")
+                sentences = [x for x in sentences if len(x) != 0]
+                tokens = tokenize(sentences)
                 labels[video_id][0] = len(self.script_pool)
-                self.script_pool.append(script)
+                self.script_pool.append(tokens)
+                # action info
                 labels[video_id][1] = {}
                 for action in line[9].split(";"):
                     action_id, start_time, end_time = action.split(" ")
                     labels[video_id][1][action_id] = (int(np.ceil(float(start_time)*self.fps)), int(np.floor(float(end_time)*self.fps)))
+                # video length
                 labels[video_id][2] = float(line[-1])
+                # feature path
                 labels[video_id][3] = feature_path
-        self.script_tokens = tokenize(self.script_pool)
         self.num_scripts = len(self.script_pool)
         return labels
 
@@ -130,7 +137,7 @@ class CharadesFeatures(data.Dataset):
         features = torch.stack(features_list, 0)
         label = torch.zeros(self.num_scripts, 1)
         label[script_id] = 1.
-        return features, actions_list, label # features of each clip, actions within each clip, script for each clip
+        return features, actions_list, label, len(actions) # features of each clip, actions within each clip, script for each clip
 
     def __len__(self):
         # return the number of videos in this dataset
@@ -140,5 +147,5 @@ class CharadesFeatures(data.Dataset):
 if __name__ == '__main__':
     dataset = CharadesFeatures(mode="train")
     train_loader = torch.utils.data.DataLoader(dataset, batch_size = 1, shuffle=True)
-    for features, actions_list, label in train_loader:
+    for features, actions_list, label, n_actions in train_loader:
         breakpoint()

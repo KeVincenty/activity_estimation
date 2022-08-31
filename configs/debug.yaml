@@ -1,4 +1,4 @@
-exp_name: "testrun_bsz20_lr5e-5_vsfusion"
+exp_name: "testrun_30epochs_bsz20_lr5e-5_NOvsfusion_01cntloss_newloss"
 root_dir: "/root/workspace/activity_estimation/"
 wandb: False
 pretrain: True
@@ -6,17 +6,18 @@ model_path: "/root/workspace/activity_estimation/models/ViT-B-16.pt"
 visual_dim: 2304
 text_dim: 2048
 emb_dim: 2048
-vs_fusion: True
+vs_fusion: False
 fusion_layers: 3
 clip_length: 10
 train:
-  epochs: 30
-  val_freq: 10
+  epochs: 50
+  val_freq: 5
   batch_size: 1
   gradient_acc: 20
-  num_workers: 8
+  num_workers: 0
   shuffle: True
   clip_gradient: 20
+  loss_ratio: 0.1
   optimizer: 
     type: "adamw"
     lr: 5.e-5

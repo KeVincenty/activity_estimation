@@ -155,7 +155,7 @@ class TextTransformer(nn.Module):
         return x
 
 class FusionTransformer(nn.Module):
-    def __init__(self, clip_length=10, embed_dim=2048, n_layers=6, vsfusion=True):
+    def __init__(self, clip_length=10, embed_dim=2048, n_layers=6, batch_size=1, vsfusion=True):
         super(FusionTransformer, self).__init__()
         self.clip_length = clip_length
         self.vsfusion = vsfusion
@@ -170,7 +170,12 @@ class FusionTransformer(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, clip_length + 1, embed_dim))
         self.pos_drop = nn.Dropout(p=drop_rate)
         if vsfusion:
-            self.projection = nn.Linear(embed_dim, embed_dim//2)
+            self.text_projection = nn.Linear(embed_dim*clip_length, embed_dim//2)
+        else:
+            self.text_projection = nn.Linear(embed_dim*clip_length, embed_dim)
+
+        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        self.cls_projection = nn.Linear(batch_size*embed_dim, batch_size)
 
         with torch.no_grad():
             trunc_normal_(self.pos_embed, std=.02)
@@ -197,9 +202,11 @@ class FusionTransformer(nn.Module):
         x = x + self.pos_embed
         x.transpose_(1, 0)
         o = self.transformer_enc(x)
-        if self.vsfusion:
-            return self.projection(o[0])
-        return o[0]
+        assert o.shape[0] == self.clip_length + 1
+        cls_emb = o[0]
+        vs_emb = o[1:]
+        vs_emb = self.text_projection(vs_emb.flatten())
+        return cls_emb, vs_emb.unsqueeze(0)
 
 def convert_weights(model: nn.Module):
     """Convert applicable model parameters to fp16"""

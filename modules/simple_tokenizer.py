@@ -1,5 +1,6 @@
 import gzip
 import html
+from lib2to3.pgen2 import token
 import os
 from functools import lru_cache
 from typing import Union, List
@@ -157,7 +158,13 @@ def tokenize(texts: Union[str, List[str]], context_length: int = 77) -> torch.Lo
 
     sot_token = _tokenizer.encoder["<|startoftext|>"]
     eot_token = _tokenizer.encoder["<|endoftext|>"]
-    all_tokens = [[sot_token] + _tokenizer.encode(text) + [eot_token] for text in texts]
+    all_tokens = []
+    for text in texts:
+        text_token = _tokenizer.encode(text)
+        if len(text_token) > context_length - 2:
+            print("Warning: truncating the text because its length {} is larger than {}".format(len(text_token)+2, context_length))
+            text_token = text_token[:context_length - 2]
+        all_tokens.append([sot_token] + text_token + [eot_token])
     result = torch.zeros(len(all_tokens), context_length, dtype=torch.long)
 
     for i, tokens in enumerate(all_tokens):
@@ -166,3 +173,10 @@ def tokenize(texts: Union[str, List[str]], context_length: int = 77) -> torch.Lo
         result[i, :len(tokens)] = torch.tensor(tokens)
 
     return result
+
+if __name__ == '__main__':
+    text = "A person 1 in their bedroom is holding a glass of coffee that they picked up from the table. They are smiling because they see something funny on the television and they start closing the bedroom door; the person closes it"
+    text = text.replace(";", ".")
+    sentences = text.split(".")
+    tokens = tokenize(sentences)
+    breakpoint()
