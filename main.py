@@ -199,7 +199,7 @@ def main():
     criterion = [SIMLoss(), MSELoss()]
 
     # training
-    # models = train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, config)
+    models = train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, config)
 
     # testing
     test("test", testloader, models, criterion, config)
@@ -336,10 +336,6 @@ def test(mode, testloader, models, criterion, config, cur_epoch=999):
 
     print("{} end".format(mode))
     print("-"*80)
-
-#TODO: add code to do interpret
-# def inference():
-    #pass
 
 
 if __name__ == '__main__':
