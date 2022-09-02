@@ -6,7 +6,7 @@ model_path: "/root/workspace/activity_estimation/models/ViT-B-16.pt"
 visual_dim: 2304
 text_dim: 2048
 emb_dim: 2048
-vs_fusion: True
+vs_fusion: False
 fusion_layers: 3
 clip_length: 10
 train:
@@ -16,7 +16,6 @@ train:
   gradient_acc: 20
   num_workers: 8
   shuffle: True
-  clip_gradient: 20
   optimizer: 
     type: "adamw"
     lr: 5.e-5

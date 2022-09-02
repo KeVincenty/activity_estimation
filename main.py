@@ -15,8 +15,9 @@ from utils.solver import *
 from utils.text_prompt import *
 
 class AttModule(nn.Module):
-    def __init__(self, in_features, text_dim, emb_dim, n_head = 8, dropout = 0.):
+    def __init__(self, in_features, text_dim, emb_dim, n_head = 8, dropout = 0., plain_attn = False):
         super().__init__()
+        self.plain_attn = plain_attn
         self.fc1 = nn.Linear(in_features, emb_dim)
         self.fc2 = nn.Linear(3*2*2*emb_dim, emb_dim)
         self.actv = nn.ReLU()
@@ -32,8 +33,11 @@ class AttModule(nn.Module):
         sfeatures = []
         for idx, tt in enumerate(t):
             vv = v[idx].unsqueeze(0)
-            attn_out, _ = self.attn(vv, tt, tt)
-            sfeatures.append(attn_out)
+            if self.plain_attn:
+                sfeatures.append(tt.mean(dim=0, keepdim=True))
+            else:
+                attn_out, _ = self.attn(vv, tt, tt)
+                sfeatures.append(attn_out)
         return v, torch.cat(sfeatures)
 
 class SIMLoss(nn.Module):
@@ -72,9 +76,9 @@ def get_training_loss(activity_emb_buffer, video_emb_buffer, cls_token_buffer, n
     sim_loss = simloss(ve, se, label, logit_scale)
     cls_token = torch.cat(cls_token_buffer)
     n_actions = torch.cat(n_actions_buffer).float().cuda()
-    mse_loss = mseloss(cls_token, n_actions, cls_projection)
-    total_loss = config["train"]["loss_ratio"] * mse_loss + sim_loss
-    return total_loss, sim_loss, mse_loss
+    cnt_loss = mseloss(cls_token, n_actions, cls_projection)
+    total_loss = config["train"]["loss_ratio"] * cnt_loss + sim_loss
+    return total_loss, sim_loss, cnt_loss
 
 class MSELoss(nn.Module):
 
@@ -91,6 +95,9 @@ def get_testing_meters(video_emb, activity_emb, label, fusion_module, criterion,
     logits_v_all, logits_i_all = criterion[0].get_logits(video_emb, activity_emb, fusion_module.logit_scale)
     label = label.squeeze(-1)
     loss = criterion[0].get_loss(logits_v_all, logits_i_all, label)
+    # logits_all = (logits_v_all + logits_i_all.t()) / 2
+    # _, pred_1 = logits_all.topk(1)
+    # _, pred_5 = logits_all.topk(5)
     _, pred_1 = logits_v_all.topk(1)
     _, pred_5 = logits_v_all.topk(5)
     pred_1 = pred_1.item() == label.nonzero().sum().item()
@@ -137,9 +144,30 @@ def main():
         wandb.init(project="activity_estimation", name='{}_{}_{}'.format("Charades", config["exp_name"], args.exp_time))
 
     # build dataloader
-    Charades_train = CharadesFeatures(mode="train")
-    Charades_val = CharadesFeatures(mode="val")
-    Charades_test = CharadesFeatures(mode="test")
+    Charades_train = CharadesFeatures(config,
+                 root=config["root_dir"],
+                 mode='train',
+                 clip_len=config["data"]["clip_len"],
+                 ol=None,
+                 feature_dir=config["data"]["data_dir"],
+                 label_dir=config["data"]["label_dir"],
+                 class_dir=config["data"]["class_dir"])
+    Charades_val = CharadesFeatures(config,
+                 root=config["root_dir"],
+                 mode='val',
+                 clip_len=config["data"]["clip_len"],
+                 ol=None,
+                 feature_dir=config["data"]["data_dir"],
+                 label_dir=config["data"]["label_dir"],
+                 class_dir=config["data"]["class_dir"])
+    Charades_test = CharadesFeatures(config,
+                 root=config["root_dir"],
+                 mode='test',
+                 clip_len=config["data"]["clip_len"],
+                 ol=None,
+                 feature_dir=config["data"]["data_dir"],
+                 label_dir=config["data"]["label_dir"],
+                 class_dir=config["data"]["class_dir"])
     trainloader = DataLoader(Charades_train, batch_size = config["train"]["batch_size"], shuffle = config["train"]["shuffle"], num_workers = config["train"]["num_workers"])
     valloader = DataLoader(Charades_val, batch_size = 1, shuffle = False, num_workers = config["train"]["num_workers"])
     testloader = DataLoader(Charades_test, batch_size = 1, shuffle = False, num_workers = config["train"]["num_workers"])
@@ -149,7 +177,7 @@ def main():
     if config["pretrain"]:
         model_state_dict = get_pretrain_model(config["model_path"])
         text_encoder.load_state_dict(model_state_dict, strict=False)
-    att_module = AttModule(config["visual_dim"], config["text_dim"], config["emb_dim"])
+    att_module = AttModule(config["visual_dim"], config["text_dim"], config["emb_dim"], plain_attn=config["plain_attn"])
     fusion_module = FusionTransformer(clip_length=config["clip_length"], embed_dim=config["emb_dim"], n_layers=config["fusion_layers"], batch_size=config["train"]["batch_size"]*config["train"]["gradient_acc"], vsfusion=config["vs_fusion"])
     models = [text_encoder, att_module, fusion_module]
     if config["wandb"]:
@@ -171,8 +199,7 @@ def main():
     optimizer = build_optimizer(config, models)
     lr_scheduler = build_lr_scheduler(config, optimizer)
     criterion = [SIMLoss(), MSELoss()]
-    
-    #TODO: multigpu training
+
     # training
     models = train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, config)
 
@@ -214,8 +241,8 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
             prompted_texts_emb = [text_encoder(text) for text in prompted_texts]
             script_emb = text_encoder(script_tokens)
             vfeatures, sfeatures = att_module(vfeatures, prompted_texts_emb)
-            cls_token, video_emb = fusion_module(vfeatures, sfeatures)
-            _, activity_emb = fusion_module(vfeatures, script_emb)
+            cls_token, video_emb = fusion_module(sfeatures, vfeatures)
+            activity_emb = fusion_module.fuse_script(script_emb)
 
             activity_emb_buffer.append(activity_emb)
             video_emb_buffer.append(video_emb)
@@ -278,7 +305,7 @@ def test(mode, testloader, models, criterion, config, cur_epoch=999):
     for _, script_tokens in enumerate(script_tokens_all):
         script_tokens = script_tokens.cuda()
         script_emb = text_encoder(script_tokens)
-        _, activity_emb = fusion_module(None, script_emb)
+        activity_emb = fusion_module.fuse_script(script_emb)
         activity_emb_buffer.append(activity_emb)
     activity_emb = torch.cat(activity_emb_buffer)
     loss_buffer, top1_acc_buffer, top5_acc_buffer = [], [], []
@@ -290,7 +317,7 @@ def test(mode, testloader, models, criterion, config, cur_epoch=999):
         prompted_texts = [x.cuda() for x in prompted_texts]
         prompted_texts_emb = [text_encoder(text) for text in prompted_texts]
         vfeatures, sfeatures = att_module(vfeatures, prompted_texts_emb)
-        _, video_emb = fusion_module(vfeatures, sfeatures)
+        _, video_emb = fusion_module(sfeatures, vfeatures)
 
         loss, pred_1, pred_5 = get_testing_meters(video_emb, activity_emb, label, fusion_module, criterion, config)
         loss_buffer.append(loss.item())
@@ -311,6 +338,11 @@ def test(mode, testloader, models, criterion, config, cur_epoch=999):
 
     print("{} end".format(mode))
     print("-"*80)
+
+#TODO: add code to do interpret
+# def inference():
+    #pass
+
 
 if __name__ == '__main__':
     main()

@@ -1,31 +1,35 @@
-exp_name: "default"
-root_dir: "/root/workspace/activity_estimation/"
-wandb: True
-pretrain: True
-model_path: "/root/workspace/activity_estimation/models/ViT-B-16.pt"
-visual_dim: 2304
-text_dim: 2048
-emb_dim: 2048
-vs_fusion: True
-fusion_layers: 6
-clip_length: 10
-train:
-  epochs: 50
-  val_freq: 5
-  batch_size: 1
-  gradient_acc: 32
-  num_workers: 8
-  shuffle: True
-  clip_gradient: 20
-  loss_ratio: 0.1
-  optimizer: 
-    type: "adamw"
-    lr: 5.e-4
-    momentum: 0.9
-    weight_decay: 0.2
-  lr_scheduler: 
-    type: "exp"
-    lr_warmup_epoch: 5
-    lr_decay_epoch: 15
-    lr_decay_factor: 1.e-3
-output_dir: "/root/workspace/activity_estimation/output"
+exp_name: "default" # set the name of the experiment
+root_dir: "/root/workspace/activity_estimation/" # root directory of this repository
+wandb: True # whether to use wandb to monitor training and tesing
+pretrain: True # whether to load a pretrained model as text encoder
+model_path: "/root/workspace/activity_estimation/models/ViT-B-16.pt" # path to the pretrained model state dict
+visual_dim: 2304 # feature dim of the extracted video features
+text_dim: 2048 # dim of the text embeddings
+emb_dim: 2048 # dim of the fusion embeddings
+vs_fusion: False # whether to cat visual features and semantic features in the fusion module
+fusion_layers: 6 # number of layers of fusion module
+clip_length: 10 # max number of clips in input video
+data: # config for dataset
+  data_dir: "/root/workspace/SlowFast/vectors/SLOWFAST_8x8_R50_Charades/" # path to the extracted video features
+  label_dir: "/root/data/Charades/" # path to the Charades label files
+  class_dir: "/root/data/Charades/Charades_v1_classes.txt" # path to the Charades class files
+  clip_len: 5 # length of each clip in seconds
+train: # config for training
+  epochs: 50 # total epochs of training
+  val_freq: 5 # frequency of validaton during training
+  batch_size: 1 # batch size of training, currently only support 1
+  gradient_acc: 32 # the times that gradient will accumulate before back prop. this means the actual batch size is batch_size * gradient_acc
+  num_workers: 8 # num_workers for DataLoader
+  shuffle: True # whether to shuffle training set
+  loss_ratio: 0.1 # factor for cnt_loss. set to 0 to disable cnt_loss
+  optimizer: # config for optimizer
+    type: "adamw" # type of the optimizer, support "adam", "sgd", "adamw", "adamw" recommended
+    lr: 5.e-4 # peak learning rate
+    momentum: 0.9 # momentum of optimizer
+    weight_decay: 0.2 # weight decay rate of optimizer
+  lr_scheduler: # config for learning rate scheduler
+    type: "exp" # type of the lr_scheduler, support "cosine", "multistep", "exp", "exp" recommended
+    lr_warmup_epoch: 5 # number of epochs for lr warmup
+    lr_decay_epoch: 15 # number of epochs that lr start to decay
+    lr_decay_factor: 1.e-3 # the lr will finally decay to lr_decay_factor * lr
+output_dir: "/root/workspace/activity_estimation/output" # path for output

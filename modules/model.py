@@ -1,4 +1,5 @@
 from collections import OrderedDict
+from importlib.metadata import requires
 from typing import Tuple, Union
 
 import numpy as np
@@ -170,9 +171,7 @@ class FusionTransformer(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, clip_length + 1, embed_dim))
         self.pos_drop = nn.Dropout(p=drop_rate)
         if vsfusion:
-            self.text_projection = nn.Linear(embed_dim*clip_length, embed_dim//2)
-        else:
-            self.text_projection = nn.Linear(embed_dim*clip_length, embed_dim)
+            self.text_projection = nn.Linear(embed_dim, embed_dim//2)
 
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
         self.cls_projection = nn.Linear(batch_size*embed_dim, batch_size)
@@ -192,7 +191,8 @@ class FusionTransformer(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def forward(self, v, s):
+    def forward(self, s, v=None):
+        n_clip = s.shape[0]
         if self.vsfusion:
             x = torch.concat([v.unsqueeze(0), s.unsqueeze(0)], dim=-1)
         else:
@@ -204,9 +204,23 @@ class FusionTransformer(nn.Module):
         o = self.transformer_enc(x)
         assert o.shape[0] == self.clip_length + 1
         cls_emb = o[0]
-        vs_emb = o[1:]
-        vs_emb = self.text_projection(vs_emb.flatten())
-        return cls_emb, vs_emb.unsqueeze(0)
+        vs_emb = o[1:1+n_clip].mean(dim=0)
+        if self.vsfusion:
+            vs_emb = self.text_projection(vs_emb)
+        return cls_emb, vs_emb
+
+    def fuse_script(self, s):
+        n_clip = s.shape[0]
+        x = s.unsqueeze(0)
+        x = F.pad(x, (0, 0, 0, self.clip_length - x.shape[1], 0, 0))
+        fake_cls_token = torch.zeros(self.cls_token.shape, requires_grad = False).cuda()
+        x = torch.concat([fake_cls_token, x], dim=1)
+        x = x + self.pos_embed
+        x.transpose_(1, 0)
+        o = self.transformer_enc(x)
+        assert o.shape[0] == self.clip_length + 1
+        s_emb = o[1:1+n_clip].mean(dim=0)
+        return s_emb
 
 def convert_weights(model: nn.Module):
     """Convert applicable model parameters to fp16"""

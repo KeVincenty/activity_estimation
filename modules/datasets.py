@@ -15,18 +15,20 @@ from PIL import Image
 
 class CharadesFeatures(data.Dataset):
     def __init__(self,
+                 config,
                  root='/root/workspace/activity_estimation/',
                  mode='train',
                  clip_len=5,
                  ol=None,
                  feature_dir="/root/workspace/SlowFast/vectors/SLOWFAST_8x8_R50_Charades/",
                  label_dir="/root/data/Charades/",
-                 class_dir="/root/data/Charades/Charades_v1_classes.txt",
+                 class_dir="/root/data/Charades/Charades_v1_classes.txt"
                  ):
         assert mode in ["train", "val", "test"], "Do not support {} mode!".format(mode)
         print("-"*80)
         print("initializing {} set!".format(mode))
         print("-"*80)
+        self.config = config
         self.root = root
         self.mode = mode
         self.clip_len = clip_len
