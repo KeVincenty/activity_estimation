@@ -95,11 +95,9 @@ def get_testing_meters(video_emb, activity_emb, label, fusion_module, criterion,
     logits_v_all, logits_i_all = criterion[0].get_logits(video_emb, activity_emb, fusion_module.logit_scale)
     label = label.squeeze(-1)
     loss = criterion[0].get_loss(logits_v_all, logits_i_all, label)
-    # logits_all = (logits_v_all + logits_i_all.t()) / 2
-    # _, pred_1 = logits_all.topk(1)
-    # _, pred_5 = logits_all.topk(5)
-    _, pred_1 = logits_v_all.topk(1)
-    _, pred_5 = logits_v_all.topk(5)
+    logits_all = (logits_v_all + logits_i_all.t()) / 2
+    _, pred_1 = logits_all.topk(1)
+    _, pred_5 = logits_all.topk(5)
     pred_1 = pred_1.item() == label.nonzero().sum().item()
     pred_5 = label.nonzero().sum().item() in pred_5[0].tolist()
     return loss, pred_1, pred_5
@@ -201,7 +199,7 @@ def main():
     criterion = [SIMLoss(), MSELoss()]
 
     # training
-    models = train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, config)
+    # models = train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, config)
 
     # testing
     test("test", testloader, models, criterion, config)
