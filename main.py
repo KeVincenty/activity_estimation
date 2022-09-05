@@ -136,6 +136,8 @@ def main():
     config["working_dir"] = os.path.join(config["output_dir"], config["exp_name"] + "_" + args.exp_time)
     os.makedirs(config["working_dir"], exist_ok=True)
     shutil.copy(args.config, config["working_dir"])
+    print("experiment: {}".format(config["exp_name"]))
+    print("setting: \n {}".format(config))
 
     #init wandb
     if config["wandb"]:
