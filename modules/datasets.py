@@ -20,6 +20,7 @@ class CharadesFeatures(data.Dataset):
                  mode='train',
                  clip_len=5,
                  ol=None,
+                 split_script=True,
                  feature_dir="/root/workspace/SlowFast/vectors/SLOWFAST_8x8_R50_Charades/",
                  label_dir="/root/data/Charades/",
                  class_dir="/root/data/Charades/Charades_v1_classes.txt"
@@ -33,6 +34,7 @@ class CharadesFeatures(data.Dataset):
         self.mode = mode
         self.clip_len = clip_len
         self.overlap = ol
+        self.split_script = split_script
         self.feature_dir = feature_dir
         self.label_dir = label_dir + "Charades_v1_test.csv" if mode == "test" else label_dir + "Charades_v1_train.csv"
         self.class_dir = class_dir
@@ -77,9 +79,12 @@ class CharadesFeatures(data.Dataset):
                 labels[video_id] = [None for _ in range(4)] # [script, actions_info, length, feature_path]
                 # script tokens
                 script = line[6]
-                sentences = script.replace(";", ".").split(".")
-                sentences = [x for x in sentences if len(x) != 0]
-                tokens = tokenize(sentences)
+                if self.split_script:
+                    sentences = script.replace(";", ".").split(".")
+                    sentences = [x for x in sentences if len(x) != 0]
+                    tokens = tokenize(sentences)
+                else:
+                    tokens = tokenize(script)
                 labels[video_id][0] = len(self.script_pool)
                 self.script_pool.append(tokens)
                 # action info

@@ -9,7 +9,7 @@ Update:
 
 Usage:
 
-1. Use SlowFast repository to extract features for all the videos of Charades dataset 
+1. Use SlowFast repository to extract features for Charades OR use the pre-extracted features in `/home/yuan_yin/Charades/slowfast_features`
 
 2. Add current path to `PYTHONPATH`
 
@@ -32,3 +32,6 @@ Usage:
     `wandb login`
 
     You can find more about `wandb` here: https://docs.wandb.ai/quickstart#1.-set-up-wandb
+
+6. Inference a learnt model
+    `bash ./scripts/run_inference.sh [PATH_TO_CONFIG] [PATH_TO_MODEL] [INDEX_OF_GPU]`

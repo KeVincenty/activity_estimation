@@ -1,4 +1,4 @@
-exp_name: "default" # set the name of the experiment
+exp_name: "debug" # set the name of the experiment
 root_dir: "/root/workspace/activity_estimation/" # root directory of this repository
 wandb: True # whether to use wandb to monitor training and tesing
 pretrain: True # whether to load a pretrained model as text encoder
@@ -7,6 +7,7 @@ visual_dim: 2304 # feature dim of the extracted video features
 text_dim: 2048 # dim of the text embeddings
 emb_dim: 2048 # dim of the fusion embeddings
 vs_fusion: False # whether to cat visual features and semantic features in the fusion module
+avg_fusion: True # the fusion method of fusion module
 fusion_layers: 6 # number of layers of fusion module
 clip_length: 10 # max number of clips in input video
 data: # config for dataset
@@ -14,6 +15,7 @@ data: # config for dataset
   label_dir: "/root/data/Charades/" # path to the Charades label files
   class_dir: "/root/data/Charades/Charades_v1_classes.txt" # path to the Charades class files
   clip_len: 5 # length of each clip in seconds
+  split_script: True # whether to split script into short sentences
 train: # config for training
   epochs: 50 # total epochs of training
   val_freq: 5 # frequency of validaton during training

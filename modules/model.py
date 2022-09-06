@@ -1,5 +1,4 @@
 from collections import OrderedDict
-from importlib.metadata import requires
 from typing import Tuple, Union
 
 import numpy as np

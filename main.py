@@ -149,6 +149,7 @@ def main():
                  mode='train',
                  clip_len=config["data"]["clip_len"],
                  ol=None,
+                 split_script=config["data"]["split_script"],
                  feature_dir=config["data"]["data_dir"],
                  label_dir=config["data"]["label_dir"],
                  class_dir=config["data"]["class_dir"])
@@ -157,6 +158,7 @@ def main():
                  mode='val',
                  clip_len=config["data"]["clip_len"],
                  ol=None,
+                 split_script=config["data"]["split_script"],
                  feature_dir=config["data"]["data_dir"],
                  label_dir=config["data"]["label_dir"],
                  class_dir=config["data"]["class_dir"])
@@ -165,6 +167,7 @@ def main():
                  mode='test',
                  clip_len=config["data"]["clip_len"],
                  ol=None,
+                 split_script=config["data"]["split_script"],
                  feature_dir=config["data"]["data_dir"],
                  label_dir=config["data"]["label_dir"],
                  class_dir=config["data"]["class_dir"])
@@ -242,9 +245,10 @@ def train(trainloader, valloader, models, criterion, optimizer, lr_scheduler, co
             script_emb = text_encoder(script_tokens)
             vfeatures, sfeatures = att_module(vfeatures, prompted_texts_emb)
             cls_token, video_emb = fusion_module(sfeatures, vfeatures)
-            activity_emb = fusion_module.fuse_script(script_emb)
+            if config["data"]["split_script"]:
+                script_emb = fusion_module.fuse_script(script_emb)
 
-            activity_emb_buffer.append(activity_emb)
+            activity_emb_buffer.append(script_emb)
             video_emb_buffer.append(video_emb)
             cls_token_buffer.append(cls_token)
             n_actions_buffer.append(n_actions)
@@ -305,9 +309,11 @@ def test(mode, testloader, models, criterion, config, cur_epoch=999):
     for _, script_tokens in enumerate(script_tokens_all):
         script_tokens = script_tokens.cuda()
         script_emb = text_encoder(script_tokens)
-        activity_emb = fusion_module.fuse_script(script_emb)
-        activity_emb_buffer.append(activity_emb)
+        if config["data"]["split_script"]:
+            script_emb = fusion_module.fuse_script(script_emb)
+        activity_emb_buffer.append(script_emb)
     activity_emb = torch.cat(activity_emb_buffer)
+    del activity_emb_buffer
     loss_buffer, top1_acc_buffer, top5_acc_buffer = [], [], []
 
     for _, (vfeatures, actions, label, _) in enumerate(tqdm(testloader)):
@@ -317,7 +323,10 @@ def test(mode, testloader, models, criterion, config, cur_epoch=999):
         prompted_texts = [x.cuda() for x in prompted_texts]
         prompted_texts_emb = [text_encoder(text) for text in prompted_texts]
         vfeatures, sfeatures = att_module(vfeatures, prompted_texts_emb)
-        _, video_emb = fusion_module(sfeatures, vfeatures)
+        if config["avg_fusion"]:
+            _, video_emb = fusion_module(sfeatures, vfeatures)
+        else:
+            video_emb, _ = fusion_module(sfeatures, vfeatures)
 
         loss, pred_1, pred_5 = get_testing_meters(video_emb, activity_emb, label, fusion_module, criterion, config)
         loss_buffer.append(loss.item())
@@ -325,8 +334,8 @@ def test(mode, testloader, models, criterion, config, cur_epoch=999):
         top5_acc_buffer.append(pred_5)
 
     total_loss = sum(loss_buffer) / len(loss_buffer)
-    top1_acc = sum(top1_acc_buffer) / len(top1_acc_buffer)
-    top5_acc = sum(top5_acc_buffer) / len(top5_acc_buffer)
+    top1_acc = sum(top1_acc_buffer) / len(top1_acc_buffer) * 100
+    top5_acc = sum(top5_acc_buffer) / len(top5_acc_buffer) * 100
 
     record = {"{} loss".format(mode): total_loss, "{} top1 acc".format(mode): top1_acc, "{} top5 acc".format(mode): top5_acc}
     if mode == "val":

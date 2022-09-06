@@ -14,4 +14,4 @@ fi
 
 now=$(date +"%Y%m%d_%H%M%S")
 
-CUDA_VISIBLE_DEVICES=${gpu} python main.py  --config ${config} --exp_time ${now}
+CUDA_VISIBLE_DEVICES=${gpu} python main.py --config ${config} --exp_time ${now}

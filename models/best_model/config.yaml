@@ -1,4 +1,4 @@
-exp_name: "testrun_30epochs_bsz20_lr5e-5_vsfusion_3layer"
+exp_name: "testrun_30epochs_bsz20_lr5e-5_NOvsfusion_3layer"
 root_dir: "/root/workspace/activity_estimation/"
 wandb: True
 pretrain: True
@@ -8,7 +8,15 @@ text_dim: 2048
 emb_dim: 2048
 vs_fusion: False
 fusion_layers: 3
+avg_fusion: False
+plain_attn: False
 clip_length: 10
+data:
+  data_dir: "/root/workspace/SlowFast/vectors/SLOWFAST_8x8_R50_Charades/"
+  label_dir: "/root/data/Charades/"
+  class_dir: "/root/data/Charades/Charades_v1_classes.txt"
+  clip_len: 5
+  split_script: False
 train:
   epochs: 30
   val_freq: 10
@@ -16,6 +24,8 @@ train:
   gradient_acc: 20
   num_workers: 8
   shuffle: True
+  loss_ratio: 0.01
+  clip_gradient: 20
   optimizer: 
     type: "adamw"
     lr: 5.e-5

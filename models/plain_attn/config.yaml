@@ -8,6 +8,7 @@ text_dim: 2048
 emb_dim: 2048
 vs_fusion: False
 fusion_layers: 3
+avg_fusion: True
 plain_attn: True
 clip_length: 10
 data:
@@ -15,6 +16,7 @@ data:
   label_dir: "/root/data/Charades/"
   class_dir: "/root/data/Charades/Charades_v1_classes.txt"
   clip_len: 5
+  split_script: True
 train:
   epochs: 50
   val_freq: 5
