@@ -116,4 +116,7 @@ def validate(testloader, models, criterion, config):
 
 
 if __name__ == '__main__':
+    torch.manual_seed(2022)
+    np.random.seed(2022)
+    random.seed(2022)
     inference()

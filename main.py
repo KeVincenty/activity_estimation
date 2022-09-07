@@ -11,6 +11,7 @@ import wandb
 import argparse
 import yaml
 import shutil
+import random
 from utils.solver import *
 from utils.text_prompt import *
 
@@ -350,4 +351,7 @@ def test(mode, testloader, models, criterion, config, cur_epoch=999):
 
 
 if __name__ == '__main__':
+    torch.manual_seed(2022)
+    np.random.seed(2022)
+    random.seed(2022)
     main()
