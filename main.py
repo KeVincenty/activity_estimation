@@ -97,6 +97,7 @@ def get_testing_meters(video_emb, activity_emb, label, fusion_module, criterion,
     label = label.squeeze(-1)
     loss = criterion[0].get_loss(logits_v_all, logits_i_all, label)
     logits_all = (logits_v_all + logits_i_all.t()) / 2
+    logits_all = F.softmax(logits_all)
     _, pred_1 = logits_all.topk(1)
     _, pred_5 = logits_all.topk(5)
     pred_1 = pred_1.item() == label.nonzero().sum().item()

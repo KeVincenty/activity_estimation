@@ -1,0 +1,38 @@
+exp_name: "Charades_testrun_50epochs_bsz20_lr5e-5_NOvsfusion_01cntloss_newloss_avgfusion"
+root_dir: "/root/workspace/activity_estimation/"
+wandb: True
+pretrain: True
+model_path: "/root/workspace/activity_estimation/models/ViT-B-16.pt"
+visual_dim: 2304
+text_dim: 2048
+emb_dim: 2048
+vs_fusion: False
+fusion_layers: 3
+plain_attn: False
+clip_length: 10
+avg_fusion: True
+data:
+  data_dir: "/root/workspace/SlowFast/vectors/SLOWFAST_8x8_R50_Charades/"
+  label_dir: "/root/data/Charades/"
+  class_dir: "/root/data/Charades/Charades_v1_classes.txt"
+  clip_len: 5
+  split_script: True
+train:
+  epochs: 50
+  val_freq: 5
+  batch_size: 1
+  gradient_acc: 20
+  num_workers: 8
+  shuffle: True
+  loss_ratio: 0.1
+  optimizer: 
+    type: "adamw"
+    lr: 5.e-5
+    momentum: 0.9
+    weight_decay: 0.2
+  lr_scheduler: 
+    type: "exp"
+    lr_warmup_epoch: 10
+    lr_decay_epoch: 30
+    lr_decay_factor: 1.e-3
+output_dir: "/root/workspace/activity_estimation/output"
