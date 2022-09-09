@@ -1,6 +1,5 @@
 import gzip
 import html
-from lib2to3.pgen2 import token
 import os
 from functools import lru_cache
 from typing import Union, List

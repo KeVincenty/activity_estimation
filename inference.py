@@ -1,16 +1,12 @@
-from email.policy import strict
 import os
 from modules.model import TextTransformer, FusionTransformer
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from modules.datasets import CharadesFeatures
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import argparse
 import yaml
-import shutil
 from utils.solver import *
 from utils.text_prompt import *
 from main import *

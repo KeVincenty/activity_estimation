@@ -1,4 +1,3 @@
-from lib2to3.pgen2 import token
 import os
 import os.path
 import numpy as np
@@ -10,7 +9,6 @@ import pickle
 import torch.utils.data as data
 import torch.nn.functional as F
 from modules.simple_tokenizer import tokenize
-from PIL import Image
 
 
 class CharadesFeatures(data.Dataset):
